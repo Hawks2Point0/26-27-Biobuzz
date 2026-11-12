@@ -26,209 +26,250 @@ public class Teleop extends LinearOpMode {
 
     private int flyspeed = 1550;
 
-    private boolean my_3_balls = false;
-    private boolean previousShootButton = false;
-
     @Override
     public void runOpMode() {
 
-        // Hardware mapping
+        // =========================
+        // HARDWARE MAPPING
+        // =========================
+
         shooter = hardwareMap.get(DcMotorEx.class, "shooter");
+
         br = hardwareMap.get(DcMotorEx.class, "br");
         fr = hardwareMap.get(DcMotorEx.class, "fr");
         fl = hardwareMap.get(DcMotorEx.class, "fl");
         bl = hardwareMap.get(DcMotorEx.class, "bl");
 
-        imu = hardwareMap.get(IMU.class, "imu");
-
         intake = hardwareMap.get(DcMotorEx.class, "intake");
         transfur = hardwareMap.get(DcMotorEx.class, "transfur");
 
-        // Shooter PIDF
-        shooter.setVelocityPIDFCoefficients(
-                1.2412, 0.1214, 0, 12.359
-        );
+        imu = hardwareMap.get(IMU.class, "imu");
 
-        // Drivetrain PIDF
+        // =========================
+        // DRIVETRAIN PIDF
+        // =========================
+
         br.setVelocityPIDFCoefficients(
-                1.0708, 0.1071, 0, 10.7087
-        );
+                1.0708, 0.1071, 0, 10.7087);
 
         fr.setVelocityPIDFCoefficients(
-                1.0435, 0.1044, 0, 10.4254
-        );
+                1.0435, 0.1044, 0, 10.4254);
 
         fl.setVelocityPIDFCoefficients(
-                1.785, 0.1078, 0, 10.70882
-        );
+                1.785, 0.1078, 0, 10.70882);
 
         bl.setVelocityPIDFCoefficients(
-                0.9999, 0.0999, 0, 9.999
-        );
+                0.9999, 0.0999, 0, 9.999);
 
-        // Motor directions
+        // =========================
+        // MOTOR DIRECTIONS
+        // =========================
+
         bl.setDirection(DcMotor.Direction.REVERSE);
         fl.setDirection(DcMotor.Direction.REVERSE);
 
         intake.setDirection(DcMotor.Direction.REVERSE);
 
-        // Drivetrain modes
+        // =========================
+        // MOTOR MODES
+        // =========================
+
         fl.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         fr.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         bl.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         br.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
-        // Brake behavior
+        shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        intake.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        transfur.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
+        // =========================
+        // ZERO POWER BEHAVIOR
+        // =========================
+
         bl.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         fl.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         fr.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         br.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        // Intake current alert
-        intake.setCurrentAlert(5.25, CurrentUnit.AMPS);
+        transfur.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.BRAKE);
 
-        // IMU initialization
-        imu.initialize(
-                new IMU.Parameters(
-                        new RevHubOrientationOnRobot(
-                                RevHubOrientationOnRobot.LogoFacingDirection.UP,
-                                RevHubOrientationOnRobot.UsbFacingDirection.FORWARD
-                        )
+        intake.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.FLOAT);
+
+        shooter.setZeroPowerBehavior(
+                DcMotor.ZeroPowerBehavior.FLOAT);
+
+        // =========================
+        // IMU INITIALIZATION
+        // =========================
+
+        imu.initialize(new IMU.Parameters(
+                new RevHubOrientationOnRobot(
+                        RevHubOrientationOnRobot.LogoFacingDirection.UP,
+                        RevHubOrientationOnRobot.UsbFacingDirection.FORWARD
                 )
-        );
+        ));
 
         telemetry.addLine("Robot Initialized");
         telemetry.update();
 
         waitForStart();
 
-        while (opModeIsActive()) {
+        if (opModeIsActive()) {
 
-            drivetrain();
+            while (opModeIsActive()) {
 
-            intake2();
+                // Shooter always runs
+                shooter.setVelocity(flyspeed);
 
-            shooter2();
-
-            telemetryUpdate();
+                // Run subsystems
+                intake2();
+                shooter2();
+                drivetrain();
+                telemetryUpdate();
+            }
         }
 
-        // Stop motors
-        shooter.setVelocity(0);
-        transfur.setVelocity(0);
-        intake.setVelocity(0);
+        // =========================
+        // STOP ALL MOTORS
+        // =========================
 
         fl.setPower(0);
         fr.setPower(0);
         bl.setPower(0);
         br.setPower(0);
+
+        shooter.setVelocity(0);
+        intake.setVelocity(0);
+        transfur.setVelocity(0);
     }
 
+    // =========================
     // INTAKE
+    // =========================
+
     private void intake2() {
 
-        boolean shooting = gamepad1.right_bumper;
+        intake.setVelocity(2200);
 
-        // Reset intake current lockout when shooting starts
-        if (shooting && !previousShootButton) {
-            my_3_balls = false;
+    }
+
+    // =========================
+    // DRIVETRAIN
+    // =========================
+
+    private void drivetrain() {
+
+        if (gamepad1.ps) {
+            imu.resetYaw();
         }
 
-        previousShootButton = shooting;
+        if (gamepad1.left_bumper) {
 
-        // Check current limit
-        if (intake.isOverCurrent()) {
-            my_3_balls = true;
-        }
+            // Robot-relative driving
+            drive(
+                    -gamepad1.left_stick_y,
+                    gamepad1.left_stick_x,
+                    gamepad1.right_stick_x
+            );
 
-        // Stop intake when current limit is reached
-        if (my_3_balls) {
-            intake.setVelocity(0);
         } else {
-            intake.setVelocity(2000);
+
+            // Field-relative driving
+            drive_relative(
+                    -gamepad1.left_stick_y,
+                    gamepad1.left_stick_x,
+                    gamepad1.right_stick_x
+            );
         }
     }
 
+    // =========================
     // SHOOTER AND TRANSFER
+    // =========================
+
     private void shooter2() {
 
+        // Keep shooter running
+        shooter.setVelocity(flyspeed);
+
+        // Transfer activates immediately when shooter is ready
         if (gamepad1.right_bumper) {
 
-            shooter.setVelocity(flyspeed);
-
-            // Wait until shooter is close to target speed
-            if (shooter.getVelocity() >= flyspeed - 200) {
-                transfur.setVelocity(2600);
-            } else {
-                transfur.setVelocity(0);
-            }
+            transfur.setVelocity(2600);
 
         } else {
 
-            shooter.setVelocity(0);
             transfur.setVelocity(0);
         }
     }
 
-    // DRIVETRAIN
-    private void drivetrain() {
-
-        if (gamepad1.a) {
-            imu.resetYaw();
-        }
-
-        drive_relative(
-                -gamepad1.left_stick_y,
-                gamepad1.left_stick_x,
-                gamepad1.right_stick_x
-        );
-    }
-
+    // =========================
     // TELEMETRY
+    // =========================
+
     private void telemetryUpdate() {
 
-        telemetry.addLine("SHOOTER");
+        telemetry.addLine("Press PS to reset Yaw");
+        telemetry.addLine("Hold LEFT BUMPER for robot-relative driving");
+        telemetry.addLine("Shooter always running");
+        telemetry.addLine("Hold RIGHT BUMPER to shoot");
 
-        telemetry.addData("Target Velocity", flyspeed);
-        telemetry.addData("Actual Velocity", "%.1f", shooter.getVelocity());
+        telemetry.addData("FR Velocity", fr.getVelocity());
+        telemetry.addData("FL Velocity", fl.getVelocity());
+        telemetry.addData("BR Velocity", br.getVelocity());
+        telemetry.addData("BL Velocity", bl.getVelocity());
+
+        telemetry.addData(
+                "Shooter Velocity",
+                shooter.getVelocity()
+        );
+
         telemetry.addData(
                 "Shooter Difference",
-                "%.1f",
                 flyspeed - shooter.getVelocity()
         );
 
-        telemetry.addLine("INTAKE");
+        telemetry.addData(
+                "Intake Velocity",
+                intake.getVelocity()
+        );
 
         telemetry.addData(
-                "Intake Current",
-                "%.2f A",
+                "Intake Amps",
                 intake.getCurrent(CurrentUnit.AMPS)
         );
 
-        telemetry.addData("Intake Locked", my_3_balls);
-
-        telemetry.addLine("TRANSFER");
-
-        telemetry.addData("Transfer Velocity", transfur.getVelocity());
+        telemetry.addData(
+                "Transfer Velocity",
+                transfur.getVelocity()
+        );
 
         telemetry.update();
     }
 
-    // FIELD-CENTRIC DRIVE
+    // =========================
+    // FIELD RELATIVE DRIVE
+    // =========================
+
     private void drive_relative(
             double forward_relative,
             double right_relative,
-            double rotate_relative
-    ) {
+            double rotate_relative) {
 
-        double theta = Math.atan2(
+        double theta;
+        double r;
+
+        theta = Math.atan2(
                 forward_relative,
                 right_relative
         ) / Math.PI * 180;
 
-        double r = Math.sqrt(
-                forward_relative * forward_relative +
-                        right_relative * right_relative
+        r = Math.sqrt(
+                forward_relative * forward_relative
+                        + right_relative * right_relative
         );
 
         theta = AngleUnit.DEGREES.normalize(
@@ -243,12 +284,14 @@ public class Teleop extends LinearOpMode {
         );
     }
 
+    // =========================
     // MECANUM DRIVE
+    // =========================
+
     private void drive(
             double forward,
             double right,
-            double rotate
-    ) {
+            double rotate) {
 
         double frontLeftPower;
         double frontRightPower;
