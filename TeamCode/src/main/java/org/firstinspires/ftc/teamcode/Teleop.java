@@ -11,7 +11,7 @@ import com.qualcomm.robotcore.hardware.IMU;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 
-// LIMELIGHT IMPORTS DISABLED
+// Limelight imports disabled
 // import com.qualcomm.hardware.limelightvision.LLResult;
 // import com.qualcomm.hardware.limelightvision.Limelight3A;
 
@@ -31,7 +31,7 @@ public class Teleop extends LinearOpMode {
     private DcMotorEx transfur;
     private DcMotorEx shooter;
 
-    // LIMELIGHT DISABLED
+    // Limelight disabled
     // private Limelight3A limelight;
 
     private IMU imu;
@@ -54,7 +54,7 @@ public class Teleop extends LinearOpMode {
     private boolean previousA = false;
 
     // =========================
-    // LIMELIGHT DISTANCE
+    // LIMELIGHT SETTINGS
     // DISABLED FOR NOW
     // =========================
 
@@ -65,13 +65,7 @@ public class Teleop extends LinearOpMode {
     private static final double CAMERA_HEIGHT_IN = 13.002;
     private static final double TARGET_HEIGHT_IN = 59.0;
     private static final double CAMERA_ANGLE_DEGREES = 45.0;
-    */
 
-    // =========================
-    // AUTO FLYWHEEL TUNING
-    // =========================
-
-    /*
     private static final double AUTO_NEAR_DISTANCE_IN = 24.0;
     private static final double AUTO_FAR_DISTANCE_IN = 120.0;
 
@@ -208,7 +202,7 @@ public class Teleop extends LinearOpMode {
 
             while (opModeIsActive()) {
 
-                // LIMELIGHT DISTANCE TRACKING DISABLED
+                // Limelight distance tracking disabled
                 // updateLimelightDistance();
 
                 control();
@@ -221,10 +215,7 @@ public class Teleop extends LinearOpMode {
 
         } finally {
 
-            // =========================
-            // STOP ALL MOTORS
-            // =========================
-
+            // Stop all motors
             fl.setPower(0);
             fr.setPower(0);
             bl.setPower(0);
@@ -234,7 +225,7 @@ public class Teleop extends LinearOpMode {
             intake.setVelocity(0);
             transfur.setVelocity(0);
 
-            // LIMELIGHT STOP DISABLED
+            // Limelight shutdown disabled
             // limelight.stop();
         }
     }
@@ -307,29 +298,22 @@ public class Teleop extends LinearOpMode {
 
         if (autoFlywheel) {
 
-            // AUTOMATIC DISTANCE CONTROL DISABLED
-            // Limelight code will be added back later.
-            // Flywheel holds its current speed.
+            // Automatic distance control is disabled.
+            // Flywheel holds its current target speed.
 
         } else {
 
             // Manual speed adjustment
             if (up && !previousUp) {
-
                 flyspeed += SPEED_STEP;
-
             }
 
             if (down && !previousDown) {
-
                 flyspeed -= SPEED_STEP;
-
             }
 
             if (y && !previousY) {
-
                 flyspeed = 1550;
-
             }
         }
 
@@ -348,13 +332,9 @@ public class Teleop extends LinearOpMode {
 
         // Transfer control
         if (gamepad1.right_bumper) {
-
             transfur.setVelocity(2600);
-
         } else {
-
             transfur.setVelocity(0);
-
         }
     }
 
@@ -415,11 +395,9 @@ public class Teleop extends LinearOpMode {
                                 / Math.tan(angleRadians);
 
                 if (distance > 0) {
-
                     limelightDistance = distance;
                     limelightHasTarget = true;
                     return;
-
                 }
             }
         }
@@ -435,9 +413,7 @@ public class Teleop extends LinearOpMode {
     private void drivetrain() {
 
         if (gamepad1.share) {
-
             imu.resetYaw();
-
         }
 
         if (gamepad1.options) {
@@ -457,7 +433,6 @@ public class Teleop extends LinearOpMode {
                     gamepad1.left_stick_x,
                     gamepad1.right_stick_x
             );
-
         }
     }
 
@@ -493,7 +468,7 @@ public class Teleop extends LinearOpMode {
 
         telemetry.addLine("================");
 
-        // LIMELIGHT TELEMETRY DISABLED
+        // Limelight telemetry disabled
         // telemetry.addData("Limelight Target", limelightHasTarget);
         // telemetry.addData("Distance (in)", limelightDistance);
 
