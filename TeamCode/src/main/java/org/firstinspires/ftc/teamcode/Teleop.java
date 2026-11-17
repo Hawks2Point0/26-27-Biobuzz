@@ -43,6 +43,14 @@ public class Teleop extends LinearOpMode {
 
     private boolean autoFlywheel = false;
 
+    // Hybrid bang-bang shooter acceleration.
+    // Full power is used while far below target, then velocity control
+    // takes over near the target to reduce overshoot.
+    private boolean shooterBoosting = false;
+    private static final double SHOOTER_BOOST_POWER = 1.0;
+    private static final double SHOOTER_BOOST_START_BELOW = 150;
+    private static final double SHOOTER_BOOST_STOP_BELOW = 50;
+
     private boolean previousUp = false;
     private boolean previousDown = false;
     private boolean previousY = false;
@@ -164,7 +172,7 @@ public class Teleop extends LinearOpMode {
         // INTAKE CURRENT LIMIT
         // =========================
 
-        intake.setCurrentAlert(4.65, CurrentUnit.AMPS);
+        intake.setCurrentAlert(4, CurrentUnit.AMPS);
 
         // =========================
         // IMU INITIALIZATION
@@ -303,12 +311,29 @@ public class Teleop extends LinearOpMode {
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
-        // Run flywheel at the selected target velocity
-        shooter.setVelocity(flyspeed);
+        // Read the measured flywheel speed.
+        double actualShooterVelocity = shooter.getVelocity();
 
-        // Wait for the measured shooter velocity to reach or exceed the target.
-        // This is non-blocking, so driving and other controls remain responsive.
-        boolean shooterReady = shooter.getVelocity() >= flyspeed;
+        // Hybrid bang-bang acceleration:
+        // Apply full power while well below target, then hand control back
+        // to the motor velocity controller near the target.
+        if (!shooterBoosting
+                && actualShooterVelocity < flyspeed - SHOOTER_BOOST_START_BELOW) {
+            shooterBoosting = true;
+        } else if (shooterBoosting
+                && actualShooterVelocity >= flyspeed - SHOOTER_BOOST_STOP_BELOW) {
+            shooterBoosting = false;
+        }
+
+        if (shooterBoosting) {
+            shooter.setPower(SHOOTER_BOOST_POWER);
+        } else {
+            shooter.setVelocity(flyspeed);
+        }
+
+        // Require the shooter to be 100 velocity units ABOVE the target
+        // before allowing the transfer to feed.
+        boolean shooterReady = actualShooterVelocity - 100 >= flyspeed;
 
         // Transfer only while the shooter is at or above its target velocity.
         if (gamepad1.right_bumper && shooterReady) {
@@ -431,8 +456,13 @@ public class Teleop extends LinearOpMode {
         );
 
         telemetry.addData(
+                "Shooter Control",
+                shooterBoosting ? "BANG-BANG BOOST" : "VELOCITY HOLD"
+        );
+
+        telemetry.addData(
                 "Shooter Ready",
-                shooter.getVelocity() >= flyspeed ? "YES" : "WAITING"
+                shooter.getVelocity() - 100 >= flyspeed ? "YES" : "WAITING"
         );
 
         telemetry.addData(
