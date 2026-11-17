@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
@@ -7,13 +6,11 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.IMU;
+import com.qualcomm.hardware.limelightvision.LLResult;
+import com.qualcomm.hardware.limelightvision.Limelight3A;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
-
-// Limelight imports disabled
-// import com.qualcomm.hardware.limelightvision.LLResult;
-// import com.qualcomm.hardware.limelightvision.Limelight3A;
 
 @TeleOp(name = "Teleop", group = "Robot")
 public class Teleop extends LinearOpMode {
@@ -31,9 +28,7 @@ public class Teleop extends LinearOpMode {
     private DcMotorEx transfur;
     private DcMotorEx shooter;
 
-    // Limelight disabled
-    // private Limelight3A limelight;
-
+    private Limelight3A limelight;
     private IMU imu;
 
     // =========================
@@ -57,10 +52,10 @@ public class Teleop extends LinearOpMode {
     // LIMELIGHT SETTINGS
     // =========================
 
-    /*
     private double limelightDistance = -1;
     private boolean limelightHasTarget = false;
 
+    // These values must match your robot and the target you are detecting.
     private static final double CAMERA_HEIGHT_IN = 13.002;
     private static final double TARGET_HEIGHT_IN = 59.0;
     private static final double CAMERA_ANGLE_DEGREES = 45.0;
@@ -68,9 +63,10 @@ public class Teleop extends LinearOpMode {
     private static final double AUTO_NEAR_DISTANCE_IN = 24.0;
     private static final double AUTO_FAR_DISTANCE_IN = 120.0;
 
+    // Both are kept at your supplied values.
+    // Change these to calibrated values if you want speed to vary by distance.
     private static final double AUTO_NEAR_SPEED = 1550;
     private static final double AUTO_FAR_SPEED = 1550;
-    */
 
     // =========================
     // INTAKE PROTECTION
@@ -98,16 +94,12 @@ public class Teleop extends LinearOpMode {
         imu = hardwareMap.get(IMU.class, "imu");
 
         // =========================
-        // LIMELIGHT SETUP DISABLED
+        // LIMELIGHT SETUP
         // =========================
 
-        /*
-        limelight = hardwareMap.get(
-                Limelight3A.class, "limelight");
-
+        limelight = hardwareMap.get(Limelight3A.class, "limelight");
         limelight.pipelineSwitch(0);
         limelight.start();
-        */
 
         // =========================
         // DRIVETRAIN PIDF
@@ -124,6 +116,9 @@ public class Teleop extends LinearOpMode {
 
         bl.setVelocityPIDFCoefficients(
                 0.9999, 0.0999, 0, 9.999);
+
+        shooter.setVelocityPIDFCoefficients(
+                1.1959, 0.1196, 0, 11.9588);
 
         // =========================
         // MOTOR DIRECTIONS
@@ -169,7 +164,7 @@ public class Teleop extends LinearOpMode {
         // INTAKE CURRENT LIMIT
         // =========================
 
-        intake.setCurrentAlert(3.75, CurrentUnit.AMPS);
+        intake.setCurrentAlert(4, CurrentUnit.AMPS);
 
         // =========================
         // IMU INITIALIZATION
@@ -183,11 +178,13 @@ public class Teleop extends LinearOpMode {
         ));
 
         telemetry.addLine("Robot Initialized");
+        telemetry.addLine("Limelight starting...");
         telemetry.update();
 
         waitForStart();
 
         if (isStopRequested()) {
+            limelight.stop();
             return;
         }
 
@@ -198,17 +195,14 @@ public class Teleop extends LinearOpMode {
         // =========================
 
         try {
-
             while (opModeIsActive()) {
 
-                // Limelight distance tracking disabled
-                // updateLimelightDistance();
+                updateLimelightDistance();
 
                 intake2();
                 shooter2();
                 drivetrain();
                 telemetryUpdate();
-
             }
 
         } finally {
@@ -223,8 +217,7 @@ public class Teleop extends LinearOpMode {
             intake.setVelocity(0);
             transfur.setVelocity(0);
 
-            // Limelight shutdown disabled
-            // limelight.stop();
+            limelight.stop();
         }
     }
 
@@ -233,35 +226,28 @@ public class Teleop extends LinearOpMode {
     // =========================
 
     private void intake2() {
+        if (gamepad1.circle) {
+            my_4_balls = false;
+        }
 
         // Reverse intake
-        if (gamepad1.ps) {
-
+        if (gamepad1.share) {
             intake.setVelocity(-2450);
             return;
-
         }
 
         // Shooting resets intake current-limit lockout
         if (gamepad1.right_bumper) {
-
             my_4_balls = false;
-
         } else if (intake.isOverCurrent()) {
-
             my_4_balls = true;
-
         }
 
         // Stop intake at current limit
         if (my_4_balls) {
-
             intake.setVelocity(0);
-
         } else {
-
-            intake.setVelocity(2600);
-
+            intake.setVelocity(2400);
         }
     }
 
@@ -271,8 +257,8 @@ public class Teleop extends LinearOpMode {
 
     private void shooter2() {
 
-        // Toggle Auto / Manual with A
-        boolean a = gamepad1.a;
+        // Toggle Auto / Manual with Triangle
+        boolean a = gamepad1.triangle;
 
         if (a && !previousA) {
             autoFlywheel = !autoFlywheel;
@@ -282,31 +268,18 @@ public class Teleop extends LinearOpMode {
 
         boolean up = gamepad1.dpad_up;
         boolean down = gamepad1.dpad_down;
-        boolean y = gamepad1.y;
+        boolean y = gamepad1.square;
 
         if (autoFlywheel) {
 
-            // =========================
-            // AUTOMATIC DISTANCE CONTROL
-            // LIMELIGHT DISABLED
-            // =========================
-
-        /*
-        if (limelightHasTarget && limelightDistance > 0) {
-
-            flyspeed = calculateAutoFlywheelSpeed(
-                    limelightDistance
-            );
-
-        }
-        */
+            // Automatically choose flywheel speed from Limelight distance.
+            if (limelightHasTarget && limelightDistance > 0) {
+                flyspeed = calculateAutoFlywheelSpeed(limelightDistance);
+            }
 
         } else {
 
-            // =========================
-            // MANUAL SPEED CONTROL
-            // =========================
-
+            // Manual speed control
             if (up && !previousUp) {
                 flyspeed += SPEED_STEP;
             }
@@ -343,10 +316,8 @@ public class Teleop extends LinearOpMode {
 
     // =========================
     // LIMELIGHT AUTO SPEED
-    // DISABLED FOR NOW
     // =========================
 
-    /*
     private double calculateAutoFlywheelSpeed(double distance) {
 
         double limitedDistance = Math.max(
@@ -368,14 +339,11 @@ public class Teleop extends LinearOpMode {
         return AUTO_NEAR_SPEED
                 + ratio * (AUTO_FAR_SPEED - AUTO_NEAR_SPEED);
     }
-    */
 
     // =========================
     // LIMELIGHT DISTANCE TRACKING
-    // DISABLED FOR NOW
     // =========================
 
-    /*
     private void updateLimelightDistance() {
 
         LLResult result = limelight.getLatestResult();
@@ -387,8 +355,7 @@ public class Teleop extends LinearOpMode {
             double angleDegrees =
                     CAMERA_ANGLE_DEGREES + ty;
 
-            if (angleDegrees > 0.1 &&
-                    angleDegrees < 89.9) {
+            if (angleDegrees > 0.1 && angleDegrees < 89.9) {
 
                 double angleRadians =
                         Math.toRadians(angleDegrees);
@@ -397,7 +364,7 @@ public class Teleop extends LinearOpMode {
                         (TARGET_HEIGHT_IN - CAMERA_HEIGHT_IN)
                                 / Math.tan(angleRadians);
 
-                if (distance > 0) {
+                if (distance > 0 && Double.isFinite(distance)) {
                     limelightDistance = distance;
                     limelightHasTarget = true;
                     return;
@@ -406,8 +373,8 @@ public class Teleop extends LinearOpMode {
         }
 
         limelightHasTarget = false;
+        limelightDistance = -1;
     }
-    */
 
     // =========================
     // DRIVETRAIN
@@ -415,7 +382,7 @@ public class Teleop extends LinearOpMode {
 
     private void drivetrain() {
 
-        if (gamepad1.share) {
+        if (gamepad1.ps) {
             imu.resetYaw();
         }
 
@@ -449,7 +416,7 @@ public class Teleop extends LinearOpMode {
 
         telemetry.addData(
                 "Flywheel Mode",
-                autoFlywheel ? "AUTO (DISTANCE DISABLED)" : "MANUAL"
+                autoFlywheel ? "AUTO (LIMELIGHT)" : "MANUAL"
         );
 
         telemetry.addData("Target Speed", flyspeed);
@@ -471,9 +438,15 @@ public class Teleop extends LinearOpMode {
 
         telemetry.addLine("================");
 
-        // Limelight telemetry disabled
-        // telemetry.addData("Limelight Target", limelightHasTarget);
-        // telemetry.addData("Distance (in)", limelightDistance);
+        telemetry.addLine("=== LIMELIGHT ===");
+        telemetry.addData("Limelight Target", limelightHasTarget);
+        telemetry.addData("Distance (in)", limelightDistance);
+        telemetry.addData(
+                "Limelight Status",
+                limelightHasTarget ? "Target detected" : "No valid target"
+        );
+
+        telemetry.addLine("================");
 
         telemetry.addData("FR Velocity", fr.getVelocity());
         telemetry.addData("FL Velocity", fl.getVelocity());
