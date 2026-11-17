@@ -230,14 +230,6 @@ public class Teleop extends LinearOpMode {
     }
 
     // =========================
-    // GENERAL CONTROLS
-    // =========================
-
-    private void control() {
-
-    }
-
-    // =========================
     // INTAKE
     // =========================
 
