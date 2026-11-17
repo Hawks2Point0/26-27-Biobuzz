@@ -204,7 +204,6 @@ public class Teleop extends LinearOpMode {
                 // Limelight distance tracking disabled
                 // updateLimelightDistance();
 
-                control();
                 intake2();
                 shooter2();
                 drivetrain();
