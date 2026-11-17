@@ -65,7 +65,7 @@ public class Teleop extends LinearOpMode {
 
     // Both are kept at your supplied values.
     // Change these to calibrated values if you want speed to vary by distance.
-    private static final double AUTO_NEAR_SPEED = 1550;
+    private static final double AUTO_NEAR_SPEED = 1560;
     private static final double AUTO_FAR_SPEED = 1550;
 
     // =========================
@@ -164,7 +164,7 @@ public class Teleop extends LinearOpMode {
         // INTAKE CURRENT LIMIT
         // =========================
 
-        intake.setCurrentAlert(4, CurrentUnit.AMPS);
+        intake.setCurrentAlert(4.65, CurrentUnit.AMPS);
 
         // =========================
         // IMU INITIALIZATION
@@ -303,11 +303,15 @@ public class Teleop extends LinearOpMode {
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
-        // Run flywheel
+        // Run flywheel at the selected target velocity
         shooter.setVelocity(flyspeed);
 
-        // Transfer control
-        if (gamepad1.right_bumper) {
+        // Wait for the measured shooter velocity to reach or exceed the target.
+        // This is non-blocking, so driving and other controls remain responsive.
+        boolean shooterReady = shooter.getVelocity() >= flyspeed;
+
+        // Transfer only while the shooter is at or above its target velocity.
+        if (gamepad1.right_bumper && shooterReady) {
             transfur.setVelocity(2600);
         } else {
             transfur.setVelocity(0);
@@ -424,6 +428,11 @@ public class Teleop extends LinearOpMode {
         telemetry.addData(
                 "Actual Speed",
                 shooter.getVelocity()
+        );
+
+        telemetry.addData(
+                "Shooter Ready",
+                shooter.getVelocity() >= flyspeed ? "YES" : "WAITING"
         );
 
         telemetry.addData(
