@@ -12,7 +12,7 @@ import com.qualcomm.hardware.limelightvision.Limelight3A;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 
-@TeleOp(name = " blue Teleop", group = "Robot")
+@TeleOp(name = " Red Teleop", group = "Robot")
 public class Red_Teleop extends LinearOpMode {
 
     // =========================
