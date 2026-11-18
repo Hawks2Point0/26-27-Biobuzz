@@ -13,7 +13,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 
 @TeleOp(name = " blue Teleop", group = "Robot")
-public class Teleop extends LinearOpMode {
+public class Blue_Teleop extends LinearOpMode {
 
     // =========================
     // HARDWARE
