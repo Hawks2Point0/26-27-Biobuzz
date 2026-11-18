@@ -39,7 +39,7 @@ public class Teleop extends LinearOpMode {
 
     private static final double MIN_FLYSPEED = 0;
     private static final double MAX_FLYSPEED = 2600;
-    private static final double SPEED_STEP = 50;
+    private static final double SPEED_STEP = 100;
 
     private boolean autoFlywheel = false;
 
@@ -48,8 +48,8 @@ public class Teleop extends LinearOpMode {
     // takes over near the target to reduce overshoot.
     private boolean shooterBoosting = false;
     private static final double SHOOTER_BOOST_POWER = 1.0;
-    private static final double SHOOTER_BOOST_START_BELOW = 150;
-    private static final double SHOOTER_BOOST_STOP_BELOW = 50;
+    private static final double SHOOTER_BOOST_START_BELOW = 75;
+    private static final double SHOOTER_BOOST_STOP_BELOW = 45;
 
     private boolean previousUp = false;
     private boolean previousDown = false;
