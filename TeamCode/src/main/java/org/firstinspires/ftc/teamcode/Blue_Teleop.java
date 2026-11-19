@@ -13,15 +13,21 @@ import com.qualcomm.hardware.limelightvision.Limelight3A;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 
-@TeleOp(name = "blue Teleop", group = "Robot")
+@TeleOp(name = " blue Teleop", group = "Robot")
 public class Blue_Teleop extends LinearOpMode {
 
     // =========================
     // HARDWARE
     // =========================
 
-    private DcMotorEx br, fr, fl, bl;
-    private DcMotorEx intake, transfur, shooter;
+    private DcMotorEx br;
+    private DcMotorEx fr;
+    private DcMotorEx fl;
+    private DcMotorEx bl;
+
+    private DcMotorEx intake;
+    private DcMotorEx transfur;
+    private DcMotorEx shooter;
 
     private Limelight3A limelight;
     private IMU imu;
@@ -50,14 +56,11 @@ public class Blue_Teleop extends LinearOpMode {
     // LIMELIGHT AUTO AIM
     // =========================
 
-    private double limelightTx = 0;
+    private boolean IsAutoAming = false;
     private boolean limelightHasTarget = false;
 
-    private static final double Kp = -0.1;
-    private static final double MIN_COMMAND = 0.05;
-    private static final double AIM_TOLERANCE = 1.0;
-
-    private double steeringAdjust = 0;
+    private double limelightTx = 0;
+    private double AutoPower = 0;
 
     // =========================
     // INTAKE PROTECTION
@@ -193,13 +196,17 @@ public class Blue_Teleop extends LinearOpMode {
                 updateLimelight();
 
                 intake2();
-                shooter2();
-                drivetrain();
-                telemetryUpdate();
 
+                shooter2();
+
+                drivetrain();
+
+                telemetryUpdate();
             }
 
         } finally {
+
+            // Stop all motors
 
             fl.setPower(0);
             fr.setPower(0);
@@ -215,6 +222,65 @@ public class Blue_Teleop extends LinearOpMode {
     }
 
     // =========================
+    // LIMELIGHT UPDATE
+    // =========================
+
+    private void updateLimelight() {
+
+        LLResult result = limelight.getLatestResult();
+
+        if (result != null && result.isValid()) {
+
+            limelightTx = result.getTx();
+            limelightHasTarget = true;
+
+        } else {
+
+            limelightTx = 0;
+            limelightHasTarget = false;
+        }
+    }
+
+    // =========================
+    // HORIZONTAL AUTO AIM
+    // =========================
+
+    private void auto_aim() {
+
+        if (gamepad1.left_bumper) {
+
+            IsAutoAming = true;
+
+            if (limelightHasTarget) {
+
+                double tx = limelightTx;
+
+                AutoPower = Math.abs(tx) / 65.0;
+
+                if (AutoPower < 0.175) {
+                    AutoPower = 0.15;
+                }
+
+                telemetry.addData("Auto Aim", "Active");
+                telemetry.addData("Auto Power", AutoPower);
+                telemetry.addData("TX", tx);
+
+            } else {
+
+                // No target: do not rotate automatically.
+                AutoPower = 0;
+
+                telemetry.addData("Auto Aim", "No Target");
+            }
+
+        } else {
+
+            IsAutoAming = false;
+            AutoPower = 0;
+        }
+    }
+
+    // =========================
     // INTAKE
     // =========================
 
@@ -225,21 +291,26 @@ public class Blue_Teleop extends LinearOpMode {
         }
 
         // Reverse intake
+
         if (gamepad1.share) {
             intake.setVelocity(-2450);
             return;
         }
 
         // Shooting resets intake current-limit lockout
+
         if (gamepad1.right_bumper) {
             my_4_balls = false;
+
         } else if (intake.isOverCurrent()) {
             my_4_balls = true;
         }
 
         // Stop intake at current limit
+
         if (my_4_balls) {
             intake.setVelocity(0);
+
         } else {
             intake.setVelocity(2400);
         }
@@ -255,7 +326,8 @@ public class Blue_Teleop extends LinearOpMode {
         boolean down = gamepad1.dpad_down;
         boolean y = gamepad1.square;
 
-        // Manual speed control
+        // Manual flywheel speed control
+
         if (up && !previousUp) {
             flyspeed += SPEED_STEP;
         }
@@ -273,14 +345,18 @@ public class Blue_Teleop extends LinearOpMode {
         previousY = y;
 
         // Speed limits
+
         flyspeed = Math.max(
                 MIN_FLYSPEED,
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
+        // Read measured flywheel speed
+
         double actualShooterVelocity = shooter.getVelocity();
 
         // Hybrid bang-bang acceleration
+
         if (!shooterBoosting
                 && actualShooterVelocity < flyspeed - SHOOTER_BOOST_START_BELOW) {
 
@@ -293,73 +369,29 @@ public class Blue_Teleop extends LinearOpMode {
         }
 
         if (shooterBoosting) {
+
             shooter.setPower(SHOOTER_BOOST_POWER);
+
         } else {
+
             shooter.setVelocity(flyspeed);
         }
 
-        // Require shooter to be 100 above target
-        boolean shooterReady = actualShooterVelocity - 100 >= flyspeed;
+        // Wait until shooter is 100 below target or faster
 
-        // Transfer
+        boolean shooterReady =
+                actualShooterVelocity >= flyspeed - 100;
+
+        // Transfer only while shooting and shooter is ready
+
         if (gamepad1.right_bumper && shooterReady) {
+
             transfur.setVelocity(2600);
+
         } else {
+
             transfur.setVelocity(0);
         }
-    }
-
-    // =========================
-    // LIMELIGHT TARGET TRACKING
-    // =========================
-
-    private void updateLimelight() {
-
-        LLResult result = limelight.getLatestResult();
-
-        if (result != null && result.isValid()) {
-
-            limelightTx = result.getTx();
-            limelightHasTarget = true;
-
-        } else {
-
-            limelightHasTarget = false;
-            limelightTx = 0;
-
-        }
-    }
-
-    // =========================
-    // LIMELIGHT PID AUTO AIM
-    // =========================
-
-    private double calculateLimelightSteering() {
-
-        if (!limelightHasTarget) {
-            return 0;
-        }
-
-        double headingError = -limelightTx;
-
-        double adjustment = 0;
-
-        if (Math.abs(headingError) > AIM_TOLERANCE) {
-
-            if (headingError < 0) {
-
-                adjustment =
-                        Kp * headingError + MIN_COMMAND;
-
-            } else {
-
-                adjustment =
-                        Kp * headingError - MIN_COMMAND;
-
-            }
-        }
-
-        return adjustment;
     }
 
     // =========================
@@ -376,20 +408,30 @@ public class Blue_Teleop extends LinearOpMode {
         double right = gamepad1.left_stick_x;
         double rotate = gamepad1.right_stick_x;
 
-        // Hold LEFT TRIGGER for auto aim
-        boolean autoAim = gamepad1.left_trigger > 0.5;
+        // Update auto aim
 
-        steeringAdjust = 0;
+        auto_aim();
 
-        if (autoAim && limelightHasTarget) {
+        // Auto aim overrides manual rotation while held
 
-            steeringAdjust = calculateLimelightSteering();
+        if (IsAutoAming && limelightHasTarget) {
 
-            // Override manual rotation
-            rotate = steeringAdjust;
+            if (limelightTx > 1.5) {
+
+                rotate = -AutoPower;
+
+            } else if (limelightTx < -1.5) {
+
+                rotate = AutoPower;
+
+            } else {
+
+                rotate = 0;
+            }
         }
 
         // Robot-relative driving
+
         if (gamepad1.options) {
 
             drive(
@@ -401,6 +443,7 @@ public class Blue_Teleop extends LinearOpMode {
         } else {
 
             // Field-relative driving
+
             drive_relative(
                     forward,
                     right,
@@ -427,7 +470,7 @@ public class Blue_Teleop extends LinearOpMode {
 
         telemetry.addData(
                 "Shooter Ready",
-                shooter.getVelocity() - 100 >= flyspeed
+                shooter.getVelocity() >= flyspeed - 100
                         ? "YES" : "WAITING"
         );
 
@@ -443,17 +486,12 @@ public class Blue_Teleop extends LinearOpMode {
 
         telemetry.addLine("================");
 
-        telemetry.addLine("=== LIMELIGHT AUTO AIM ===");
+        telemetry.addLine("=== LIMELIGHT ===");
 
-        telemetry.addData("Target Found", limelightHasTarget);
+        telemetry.addData("Auto Aiming", IsAutoAming);
+        telemetry.addData("Limelight Target", limelightHasTarget);
         telemetry.addData("TX", limelightTx);
-
-        telemetry.addData(
-                "Auto Aim",
-                gamepad1.left_trigger > 0.5 ? "ACTIVE" : "OFF"
-        );
-
-        telemetry.addData("Steering Adjust", steeringAdjust);
+        telemetry.addData("Auto Power", AutoPower);
 
         telemetry.addLine("================");
 
@@ -471,7 +509,10 @@ public class Blue_Teleop extends LinearOpMode {
 
         telemetry.addData("Intake Current Lockout", my_4_balls);
 
-        telemetry.addData("Transfer Velocity", transfur.getVelocity());
+        telemetry.addData(
+                "Transfer Velocity",
+                transfur.getVelocity()
+        );
 
         telemetry.addData(
                 "Yaw",
