@@ -39,7 +39,7 @@ public class Blue_Teleop extends LinearOpMode {
 
     private static final double MIN_FLYSPEED = 0;
     private static final double MAX_FLYSPEED = 2600;
-    private static final double SPEED_STEP = 100;
+    private static final double SPEED_STEP = 25;
 
     private boolean previousUp = false;
     private boolean previousDown = false;
@@ -149,7 +149,7 @@ public class Blue_Teleop extends LinearOpMode {
         // INTAKE CURRENT LIMIT
         // =========================
 
-        intake.setCurrentAlert(4, CurrentUnit.AMPS);
+        intake.setCurrentAlert(3, CurrentUnit.AMPS);
 
         // =========================
         // IMU INITIALIZATION
@@ -245,10 +245,10 @@ public class Blue_Teleop extends LinearOpMode {
 
                 double tx = limelightTx;
 
-                AutoPower = Math.abs(tx) / 65.0;
+                AutoPower = Math.abs(tx) / 42.5;
 
                 if (AutoPower < 0.175) {
-                    AutoPower = 0.15;
+                    AutoPower = 0.155;
                 }
 
                 telemetry.addData("Auto Aim", "Active");
@@ -383,13 +383,13 @@ public class Blue_Teleop extends LinearOpMode {
 
         if (IsAutoAming && limelightHasTarget) {
 
-            if (limelightTx > 1.5) {
-
-                rotate = -AutoPower;
-
-            } else if (limelightTx < -1.5) {
+            if (limelightTx > 1.25) {
 
                 rotate = AutoPower;
+
+            } else if (limelightTx < -1.25) {
+
+                rotate = -AutoPower;
 
             } else {
 
