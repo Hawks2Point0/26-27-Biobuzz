@@ -105,9 +105,6 @@ public class Blue_Teleop extends LinearOpMode {
         bl.setVelocityPIDFCoefficients(
                 0.9999, 0.0999, 0, 9.999);
 
-        shooter.setVelocityPIDFCoefficients(
-                1.1959, 0.1196, 0, 11.9588);
-
         // =========================
         // MOTOR DIRECTIONS
         // =========================
