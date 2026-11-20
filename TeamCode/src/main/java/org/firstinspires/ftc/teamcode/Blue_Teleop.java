@@ -1,4 +1,3 @@
-
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
@@ -41,12 +40,6 @@ public class Blue_Teleop extends LinearOpMode {
     private static final double MIN_FLYSPEED = 0;
     private static final double MAX_FLYSPEED = 2600;
     private static final double SPEED_STEP = 100;
-
-    private boolean shooterBoosting = false;
-
-    private static final double SHOOTER_BOOST_POWER = 1.0;
-    private static final double SHOOTER_BOOST_START_BELOW = 75;
-    private static final double SHOOTER_BOOST_STOP_BELOW = 45;
 
     private boolean previousUp = false;
     private boolean previousDown = false;
@@ -351,39 +344,16 @@ public class Blue_Teleop extends LinearOpMode {
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
-        // Read measured flywheel speed
+        // Keep the motor in velocity-control mode continuously. Switching
+        // between full power and velocity control caused the flywheel speed
+        // to surge and dip, especially when the transfer feeds a ball.
+        shooter.setVelocity(flyspeed);
 
+        // Read measured flywheel speed for the shooting readiness check.
         double actualShooterVelocity = shooter.getVelocity();
-
-        // Hybrid bang-bang acceleration
-
-        if (!shooterBoosting
-                && actualShooterVelocity < flyspeed - SHOOTER_BOOST_START_BELOW) {
-
-            shooterBoosting = true;
-
-        } else if (shooterBoosting
-                && actualShooterVelocity >= flyspeed - SHOOTER_BOOST_STOP_BELOW) {
-
-            shooterBoosting = false;
-        }
-
-        if (shooterBoosting) {
-
-            shooter.setPower(SHOOTER_BOOST_POWER);
-
-        } else {
-
-            shooter.setVelocity(flyspeed);
-        }
-
-        // Wait until shooter is 100 below target or faster
-
-        boolean shooterReady =
-                actualShooterVelocity >= flyspeed - 100;
+        boolean shooterReady = actualShooterVelocity >= flyspeed - 100;
 
         // Transfer only while shooting and shooter is ready
-
         if (gamepad1.right_bumper && shooterReady) {
 
             transfur.setVelocity(2600);
@@ -465,7 +435,7 @@ public class Blue_Teleop extends LinearOpMode {
 
         telemetry.addData(
                 "Shooter Control",
-                shooterBoosting ? "BANG-BANG BOOST" : "VELOCITY HOLD"
+                "VELOCITY HOLD"
         );
 
         telemetry.addData(
