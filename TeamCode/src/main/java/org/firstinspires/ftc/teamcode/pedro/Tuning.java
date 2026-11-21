@@ -1,19 +1,16 @@
 package org.firstinspires.ftc.teamcode.pedro;
 
 import org.firstinspires.ftc.teamcode.pedro.procedures.MecanumTuner;
-import org.firstinspires.ftc.teamcode.pedro.procedures.PinpointTuner;
-import org.firstinspires.ftc.teamcode.pedro.procedures.ForesightTuner;
 import org.firstinspires.ftc.teamcode.pedro.procedures.Tests;
-
 import com.pedropathing.tuning.autotune.Tuner;
 import com.pedropathing.tuning.autotune.Procedure;
-
+import org.firstinspires.ftc.teamcode.pedro.procedures.PinpointTuner;
+import org.firstinspires.ftc.teamcode.pedro.procedures.ForesightTuner;
 import com.pedropathing.algorithm.Foresight;
 import com.pedropathing.revhub.localizers.PinpointLocalizer;
 import com.pedropathing.revhub.drivetrains.Mecanum;
 
 public class Tuning {
-
     @Tuner
     public static Procedure mecanumTuner() {
         return new MecanumTuner();
@@ -35,8 +32,13 @@ public class Tuning {
     @Tuner
     public static Procedure tests() {
         return new Tests(
-                (hardwareMap) -> new Mecanum(hardwareMap, Constants.drivetrainConfig),
-                (hardwareMap) -> new PinpointLocalizer(hardwareMap, Constants.localizerConfig),
+                hardwareMap -> new Mecanum(
+                        hardwareMap, Constants.drivetrainConfig
+                ),
+                hardwareMap -> new PinpointLocalizer(
+                        hardwareMap, Constants.localizerConfig
+                ),
+                // FIX: was null, which made the Hold/Line/Curve/Interpolation tests throw
                 () -> new Foresight(Constants.foresightConfig)
         );
     }

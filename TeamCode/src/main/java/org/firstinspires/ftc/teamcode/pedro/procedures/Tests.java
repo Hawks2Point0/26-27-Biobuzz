@@ -78,23 +78,23 @@ public class Tests extends Procedure {
 
         switch (selectedTest.get()) {
             case HOLD:
-                if (!algorithm)
-                    throw new IllegalArgumentException("Algorithm is required for Hold Test.");
+                if (!algorithm || !localizer || !drivetrain)
+                    throw new IllegalArgumentException("Algorithm, localizer, and drivetrain are required for Hold Test.");
                 completed = runOpMode(new TestsHold(followerFunction));
                 break;
             case LINE:
-                if (!algorithm)
-                    throw new IllegalArgumentException("Algorithm is required for Hold Test.");
+                if (!algorithm || !localizer || !drivetrain)
+                    throw new IllegalArgumentException("Algorithm, localizer, and drivetrain are required for Line Test.");
                 completed = runOpMode(new TestsLine(followerFunction, distance.get()));
                 break;
             case CURVED:
-                if (!algorithm)
-                    throw new IllegalArgumentException("Algorithm is required for Hold Test.");
+                if (!algorithm || !localizer || !drivetrain)
+                    throw new IllegalArgumentException("Algorithm, localizer, and drivetrain are required for Curve Test.");
                 completed = runOpMode(new TestsCurve(followerFunction, distance.get()));
                 break;
             case INTERPOLATION_CURVED:
-                if (!algorithm)
-                    throw new IllegalArgumentException("Algorithm is required for Hold Test.");
+                if (!algorithm || !localizer || !drivetrain)
+                    throw new IllegalArgumentException("Algorithm, localizer, and drivetrain are required for Interpolation Test.");
                 completed = runOpMode(new TestsInterpolation(followerFunction, distance.get()));
                 break;
             case LOCALIZATION:
@@ -170,8 +170,8 @@ class TestsLine extends TuningOpMode<Boolean> {
 
         boolean forward = true;
 
-        Path path1 = line(Pose.zero(), new Pose(distance,0, 0)).constant(0);
-        Path path2 = line(new Pose(distance,0, 0), Pose.zero()).constant(0);
+        Path path1 = line(Pose.zero(), new Pose(distance, 0, 0)).constant(0);
+        Path path2 = line(new Pose(distance, 0, 0), Pose.zero()).constant(0);
 
         Thread.sleep(1000);
         waitForStart();
@@ -211,8 +211,8 @@ class TestsCurve extends TuningOpMode<Boolean> {
 
         boolean forward = true;
 
-        Path path1 = curve(Pose.zero(), new Pose(distance + 0,0), new Pose(distance,distance)).tangent();
-        Path path2 = curve(new Pose(distance,distance), new Pose(distance,0), Pose.zero()).tangent();
+        Path path1 = curve(Pose.zero(), new Pose(distance + 0, 0), new Pose(distance, distance)).tangent();
+        Path path2 = curve(new Pose(distance, distance), new Pose(distance, 0), Pose.zero()).tangent();
 
         Thread.sleep(1000);
         waitForStart();
@@ -252,8 +252,8 @@ class TestsInterpolation extends TuningOpMode<Boolean> {
 
         boolean forward = true;
 
-        Path path1 = curve(Pose.zero(), new Pose(distance + 0,0), new Pose(distance,distance)).heading((curve, t) -> Math.PI);
-        Path path2 = curve(new Pose(distance,distance), new Pose(distance,0), Pose.zero()).heading(Interpolator.piecewise().until(0.5, Interpolator.tangent).until(1.0, Interpolator.constant(0)));
+        Path path1 = curve(Pose.zero(), new Pose(distance + 0, 0), new Pose(distance, distance)).heading((curve, t) -> Math.PI);
+        Path path2 = curve(new Pose(distance, distance), new Pose(distance, 0), Pose.zero()).heading(Interpolator.piecewise().until(0.5, Interpolator.tangent).until(1.0, Interpolator.constant(0)));
 
         Thread.sleep(1000);
         waitForStart();
@@ -331,7 +331,7 @@ class TestsOdometry extends TuningOpMode<Boolean> {
     private boolean passedHeading = false;
 
     public TestsOdometry(Function<HardwareMap, Drivetrain> drivetrainFunction, Function<HardwareMap, Localizer> localizerFunction) {
-        super("Localization Test", "Verifies localization and manual control.", true);
+        super("Odometry Test", "Verifies odometry pod direction and resolution.", true);
         this.drivetrainFunction = drivetrainFunction;
         this.localizerFunction = localizerFunction;
     }
@@ -478,5 +478,3 @@ class TestsPose extends TuningOpMode<Boolean> {
         return true;
     }
 }
-
-
