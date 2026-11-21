@@ -15,7 +15,6 @@ import org.firstinspires.ftc.robotcore.external.navigation.CurrentUnit;
 @TeleOp(name = " Red Teleop", group = "Robot")
 public class Red_Teleop extends LinearOpMode {
 
-
     // =========================
     // HARDWARE
     // =========================
@@ -45,6 +44,25 @@ public class Red_Teleop extends LinearOpMode {
     private boolean previousUp = false;
     private boolean previousDown = false;
     private boolean previousY = false;
+
+    // =========================
+    // HYBRID SHOOTER CONTROL
+    // =========================
+
+    private static final double BB_FULL_POWER = 1.0;   // power when far below target
+    private static final double BB_HOLD_POWER = 0.0;   // power when far above target
+
+    private static final double VEL_ENTER_BAND = 60;   // switch TO velocity control within this many ticks/sec
+    private static final double VEL_EXIT_BAND = 120;   // switch BACK to bang-bang if error exceeds this
+
+    private boolean inVelocityControl = false;
+    private boolean shooterEncoderMode = true;         // tracks the current run mode
+
+    // Flywheel velocity PIDF
+    private static final double SHOOTER_P = 1.17;
+    private static final double SHOOTER_I = 0.117;
+    private static final double SHOOTER_D = 0;
+    private static final double SHOOTER_F = 11.7;      // about 32767 / max ticks per sec (~2800)
 
     // =========================
     // LIMELIGHT AUTO AIM
@@ -107,6 +125,13 @@ public class Red_Teleop extends LinearOpMode {
                 0.9999, 0.0999, 0, 9.999);
 
         // =========================
+        // FLYWHEEL PIDF
+        // =========================
+
+        shooter.setVelocityPIDFCoefficients(
+                SHOOTER_P, SHOOTER_I, SHOOTER_D, SHOOTER_F);
+
+        // =========================
         // MOTOR DIRECTIONS
         // =========================
 
@@ -125,6 +150,7 @@ public class Red_Teleop extends LinearOpMode {
         br.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        shooterEncoderMode = true;
         intake.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         transfur.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
@@ -204,6 +230,7 @@ public class Red_Teleop extends LinearOpMode {
             bl.setPower(0);
             br.setPower(0);
 
+            setShooterEncoderMode(true);
             shooter.setVelocity(0);
             intake.setVelocity(0);
             transfur.setVelocity(0);
@@ -308,6 +335,22 @@ public class Red_Teleop extends LinearOpMode {
     }
 
     // =========================
+    // SHOOTER MODE HELPER
+    // =========================
+
+    // Only touches the motor when the mode actually needs to change
+    private void setShooterEncoderMode(boolean useEncoder) {
+
+        if (useEncoder == shooterEncoderMode) return;
+
+        shooter.setMode(useEncoder
+                ? DcMotor.RunMode.RUN_USING_ENCODER
+                : DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+
+        shooterEncoderMode = useEncoder;
+    }
+
+    // =========================
     // SHOOTER AND TRANSFER
     // =========================
 
@@ -342,13 +385,41 @@ public class Red_Teleop extends LinearOpMode {
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
-        // Keep the motor in velocity-control mode continuously. Switching
-        // between full power and velocity control caused the flywheel speed
-        // to surge and dip, especially when the transfer feeds a ball.
-        shooter.setVelocity(flyspeed);
+        // Hybrid control: bang-bang when far from target,
+        // velocity PIDF when close.
 
-        // Read measured flywheel speed for the shooting readiness check.
         double actualShooterVelocity = shooter.getVelocity();
+        double error = flyspeed - actualShooterVelocity;
+
+        if (flyspeed <= 0) {
+
+            inVelocityControl = false;
+            setShooterEncoderMode(false);
+            shooter.setPower(0);
+
+        } else {
+
+            // Hysteresis between the two control modes
+            if (!inVelocityControl && Math.abs(error) <= VEL_ENTER_BAND) {
+                inVelocityControl = true;
+            } else if (inVelocityControl && Math.abs(error) > VEL_EXIT_BAND) {
+                inVelocityControl = false;
+            }
+
+            if (inVelocityControl) {
+
+                // Close to target: let the velocity PIDF hold it
+                setShooterEncoderMode(true);
+                shooter.setVelocity(flyspeed);
+
+            } else {
+
+                // Far from target: bang-bang
+                setShooterEncoderMode(false);
+                shooter.setPower(error > 0 ? BB_FULL_POWER : BB_HOLD_POWER);
+            }
+        }
+
         boolean shooterReady = actualShooterVelocity >= flyspeed - 100;
 
         // Transfer only while shooting and shooter is ready
@@ -433,8 +504,10 @@ public class Red_Teleop extends LinearOpMode {
 
         telemetry.addData(
                 "Shooter Control",
-                "VELOCITY HOLD"
+                inVelocityControl ? "VELOCITY HOLD" : "BANG-BANG"
         );
+
+        telemetry.addData("Shooter Power", shooter.getPower());
 
         telemetry.addData(
                 "Shooter Ready",
