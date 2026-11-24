@@ -108,25 +108,28 @@ public class shoot_park extends OpMode {
         public Path line2;
 
         public Paths(Follower follower, AutoContext ctx) {
-            DriveToShoot = line(
-                    ctx.pose(p.of(9.000, 127.332, 0.0)),
-                    ctx.pose(p.of(60.650, 127.332, 0.0))
-            ).constant(ctx.heading(Math.toRadians(-90)));
 
-            line2 = line(
-                    ctx.pose(p.of(60.650, 127.332, 0.0)),
-                    ctx.pose(p.of(11.230, 111.885, 0.0))
-            ).constant(ctx.heading(Math.toRadians(-90)));
-        }
-    }
+                    DriveToShoot = curve(
+                            p.of(8.000, 136.000, 0.0),
+                            p.of(32.343, 116.959, 0.0),
+                            p.of(60.499, 118.853, 0.0)
+                    ).linear(Math.toRadians(0), Math.toRadians(-90));
 
-    public int autonomousPathUpdate() {
+                    line2 = line(
+                            p.of(60.499, 118.853, 0.0),
+                            p.of(12.066, 117.139, 0.0)
+                    ).constant(Math.toRadians(-90));
+                }
+            }
+
+
+            public int autonomousPathUpdate() {
         switch (pathState) {
             case 0:
                 setPathState(1);
                 break;
             case 1:
-                if (pathTimer.milliseconds() > 24000) {
+                if (pathTimer.milliseconds() > 0.00) {
                     setPathState(2);
                 }
                 break;

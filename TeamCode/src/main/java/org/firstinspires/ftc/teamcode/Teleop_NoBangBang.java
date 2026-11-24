@@ -1,3 +1,4 @@
+
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
@@ -6,6 +7,7 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.IMU;
+import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.hardware.limelightvision.LLResult;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 
@@ -28,8 +30,23 @@ public class Teleop_NoBangBang extends LinearOpMode {
     private DcMotorEx transfur;
     private DcMotorEx shooter;
 
+    private Servo hood;
+
     private Limelight3A limelight;
     private IMU imu;
+
+    // =========================
+    // HOOD SERVO
+    // =========================
+
+    private double hoodPosition = 0.50;
+
+    private static final double HOOD_STEP = 0.01;
+    private static final double HOOD_MIN = 0.0;
+    private static final double HOOD_MAX = 1.0;
+
+    private boolean previousHoodUp = false;
+    private boolean previousHoodDown = false;
 
     // =========================
     // FLYWHEEL SETTINGS
@@ -46,14 +63,13 @@ public class Teleop_NoBangBang extends LinearOpMode {
     private boolean previousY = false;
 
     // =========================
-    // SHOOTER CONTROL (VELOCITY PIDF ONLY)
+    // SHOOTER PIDF
     // =========================
 
-    // Flywheel velocity PIDF (starting values, tune on the robot)
-    private static final double SHOOTER_P = 1.17;
-    private static final double SHOOTER_I = 0.117;
-    private static final double SHOOTER_D = 0;
-    private static final double SHOOTER_F = 11.7;      // about 32767 / max ticks per sec (~2800)
+    private static final double SHOOTER_P = 60.8;
+    private static final double SHOOTER_I = 0.1;
+    private static final double SHOOTER_D = 0.1460;
+    private static final double SHOOTER_F = 11.4608;
 
     // =========================
     // LIMELIGHT AUTO AIM
@@ -88,7 +104,15 @@ public class Teleop_NoBangBang extends LinearOpMode {
         intake = hardwareMap.get(DcMotorEx.class, "intake");
         transfur = hardwareMap.get(DcMotorEx.class, "transfur");
 
+        hood = hardwareMap.get(Servo.class, "hood");
+
         imu = hardwareMap.get(IMU.class, "imu");
+
+        // =========================
+        // HOOD INITIAL POSITION
+        // =========================
+
+        hood.setPosition(hoodPosition);
 
         // =========================
         // LIMELIGHT SETUP
@@ -166,7 +190,7 @@ public class Teleop_NoBangBang extends LinearOpMode {
         // INTAKE CURRENT LIMIT
         // =========================
 
-        intake.setCurrentAlert(3, CurrentUnit.AMPS);
+        intake.setCurrentAlert(3.5, CurrentUnit.AMPS);
 
         // =========================
         // IMU INITIALIZATION
@@ -181,6 +205,7 @@ public class Teleop_NoBangBang extends LinearOpMode {
 
         telemetry.addLine("Robot Initialized");
         telemetry.addLine("Limelight starting...");
+        telemetry.addLine("Hood Servo Ready");
         telemetry.update();
 
         waitForStart();
@@ -202,6 +227,8 @@ public class Teleop_NoBangBang extends LinearOpMode {
 
                 updateLimelight();
 
+                hoodControl();
+
                 intake2();
 
                 shooter2();
@@ -212,8 +239,6 @@ public class Teleop_NoBangBang extends LinearOpMode {
             }
 
         } finally {
-
-            // Stop all motors
 
             fl.setPower(0);
             fr.setPower(0);
@@ -226,6 +251,39 @@ public class Teleop_NoBangBang extends LinearOpMode {
 
             limelight.stop();
         }
+    }
+
+    // =========================
+    // HOOD CONTROL
+    // =========================
+
+    private void hoodControl() {
+
+        boolean hoodUp = gamepad1.dpad_right;
+        boolean hoodDown = gamepad1.dpad_left;
+
+        // Raise hood
+        if (hoodUp && !previousHoodUp) {
+            hoodPosition += HOOD_STEP;
+        }
+
+        // Lower hood
+        if (hoodDown && !previousHoodDown) {
+            hoodPosition -= HOOD_STEP;
+        }
+
+        previousHoodUp = hoodUp;
+        previousHoodDown = hoodDown;
+
+        // Servo limits
+        hoodPosition = Math.max(
+                HOOD_MIN,
+                Math.min(HOOD_MAX, hoodPosition)
+        );
+
+        hood.setPosition(hoodPosition);
+
+        telemetry.addData("Hood Position", "%.2f", hoodPosition);
     }
 
     // =========================
@@ -262,10 +320,10 @@ public class Teleop_NoBangBang extends LinearOpMode {
 
                 double tx = limelightTx;
 
-                AutoPower = Math.abs(tx) / 42.5;
+                AutoPower = Math.abs(tx) / 43.5;
 
                 if (AutoPower < 0.175) {
-                    AutoPower = 0.155;
+                    AutoPower = 0.125;
                 }
 
                 telemetry.addData("Auto Aim", "Active");
@@ -274,7 +332,6 @@ public class Teleop_NoBangBang extends LinearOpMode {
 
             } else {
 
-                // No target: do not rotate automatically.
                 AutoPower = 0;
 
                 telemetry.addData("Auto Aim", "No Target");
@@ -297,14 +354,10 @@ public class Teleop_NoBangBang extends LinearOpMode {
             my_4_balls = false;
         }
 
-        // Reverse intake
-
         if (gamepad1.share) {
             intake.setVelocity(-2450);
             return;
         }
-
-        // Shooting resets intake current-limit lockout
 
         if (gamepad1.right_bumper) {
             my_4_balls = false;
@@ -312,8 +365,6 @@ public class Teleop_NoBangBang extends LinearOpMode {
         } else if (intake.isOverCurrent()) {
             my_4_balls = true;
         }
-
-        // Stop intake at current limit
 
         if (my_4_balls) {
             intake.setVelocity(0);
@@ -333,8 +384,6 @@ public class Teleop_NoBangBang extends LinearOpMode {
         boolean down = gamepad1.dpad_down;
         boolean y = gamepad1.square;
 
-        // Manual flywheel speed control
-
         if (up && !previousUp) {
             flyspeed += SPEED_STEP;
         }
@@ -351,21 +400,17 @@ public class Teleop_NoBangBang extends LinearOpMode {
         previousDown = down;
         previousY = y;
 
-        // Speed limits
-
         flyspeed = Math.max(
                 MIN_FLYSPEED,
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
-        // Velocity PIDF control, held continuously
         shooter.setVelocity(flyspeed);
 
         double actualShooterVelocity = shooter.getVelocity();
 
         boolean shooterReady = actualShooterVelocity >= flyspeed - 100;
 
-        // Transfer only while shooting and shooter is ready
         if (gamepad1.right_bumper && shooterReady) {
 
             transfur.setVelocity(2600);
@@ -390,11 +435,7 @@ public class Teleop_NoBangBang extends LinearOpMode {
         double right = gamepad1.left_stick_x;
         double rotate = gamepad1.right_stick_x;
 
-        // Update auto aim
-
         auto_aim();
-
-        // Auto aim overrides manual rotation while held
 
         if (IsAutoAming && limelightHasTarget) {
 
@@ -412,8 +453,6 @@ public class Teleop_NoBangBang extends LinearOpMode {
             }
         }
 
-        // Robot-relative driving
-
         if (gamepad1.options) {
 
             drive(
@@ -423,8 +462,6 @@ public class Teleop_NoBangBang extends LinearOpMode {
             );
 
         } else {
-
-            // Field-relative driving
 
             drive_relative(
                     forward,
@@ -496,6 +533,11 @@ public class Teleop_NoBangBang extends LinearOpMode {
         telemetry.addData(
                 "Transfer Velocity",
                 transfur.getVelocity()
+        );
+
+        telemetry.addData(
+                "Hood Position",
+                hoodPosition
         );
 
         telemetry.addData(
