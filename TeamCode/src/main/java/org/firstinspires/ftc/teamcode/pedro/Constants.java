@@ -43,27 +43,14 @@ public class Constants {
     // ==============================
 
     public static PinpointConfig localizerConfig = new PinpointConfig(c -> {
-
         c.name.set("pinpoint");
-
-        c.podType.set(
-                GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD
-        );
-
-        c.xPodOffset.set(-0.00890530176519409);
-        c.yPodOffset.set(-0.013852692025852955);
-
-        c.xPodDirection.set(
-                GoBildaPinpointDriver.EncoderDirection.FORWARD
-        );
-
-        c.yPodDirection.set(
-                GoBildaPinpointDriver.EncoderDirection.REVERSED
-        );
-
+        c.podType.set(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
+        c.xPodOffset.set(-4.361592991145577);
+        c.yPodOffset.set(-1.2103576359786388);
+        c.xPodDirection.set(GoBildaPinpointDriver.EncoderDirection.REVERSED);
+        c.yPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
         c.globalDistanceUnit.set(DistanceUnit.INCH);
         c.offsetUnits.set(DistanceUnit.INCH);
-
     });
 
     // ==============================
