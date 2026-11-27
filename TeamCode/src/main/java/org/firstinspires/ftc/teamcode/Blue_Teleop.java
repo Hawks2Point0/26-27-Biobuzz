@@ -1,15 +1,18 @@
 package org.firstinspires.ftc.teamcode;
 
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.IMU;
-import com.qualcomm.robotcore.hardware.LED;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.VoltageSensor;
+import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.hardware.limelightvision.LLResult;
+import com.qualcomm.hardware.limelightvision.LLResultTypes;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.hardware.sparkfun.SparkFunLEDStick;
 
@@ -25,11 +28,7 @@ public class Blue_Teleop extends LinearOpMode {
     // HARDWARE
     // =========================
 
-    private DcMotorEx br;
-    private DcMotorEx fr;
-    private DcMotorEx fl;
-    private DcMotorEx bl;
-
+    private DcMotorEx br, fr, fl, bl;
     private DcMotorEx intake;
     private DcMotorEx transfur;
     private DcMotorEx shooter;
@@ -38,6 +37,14 @@ public class Blue_Teleop extends LinearOpMode {
 
     private Limelight3A limelight;
     private IMU imu;
+
+    // =========================
+    // PER-LOOP CACHED READS (read hardware once per loop)
+    // =========================
+
+    private double yawDeg = 0;
+    private double shooterVel = 0;
+    private double intakeAmps = 0;
 
     // =========================
     // HOOD SERVO
@@ -49,9 +56,8 @@ public class Blue_Teleop extends LinearOpMode {
     private static final double HOOD_MIN = 0.0;
     private static final double HOOD_MAX = 0.5;
 
-    // Hood presets (Cross = low, Triangle = high)
-    private static final double HOOD_PRESET_LOW = 0.25;
-    private static final double HOOD_PRESET_HIGH = 0.35;
+    private static final double HOOD_PRESET_LOW = 0.25;   // Cross
+    private static final double HOOD_PRESET_HIGH = 0.35;  // Triangle
 
     private boolean previousHoodUp = false;
     private boolean previousHoodDown = false;
@@ -67,10 +73,11 @@ public class Blue_Teleop extends LinearOpMode {
     private static final double MIN_FLYSPEED = 0;
     private static final double MAX_FLYSPEED = 2600;
     private static final double SPEED_STEP = 25;
+    private static final double FLYSPEED_PRESET = 1550;   // Square
 
     private boolean previousUp = false;
     private boolean previousDown = false;
-    private boolean previousY = false;
+    private boolean previousSquare = false;
 
     // =========================
     // SHOOTER PIDF
@@ -82,81 +89,96 @@ public class Blue_Teleop extends LinearOpMode {
     private static final double SHOOTER_F = 11.9588;
 
     // =========================
+    // SHOOTER READY (band + debounce)
+    // =========================
+
+    private static final double READY_TOLERANCE = 75;              // ticks/sec either side of target
+    private static final long READY_HOLD_NS = 60_000_000L;         // must stay in band 60 ms
+    private long readySinceNs = 0;
+
+    // =========================
+    // TRANSFER / INTAKE SPEEDS
+    // =========================
+
+    private static final double TRANSFER_VEL = 2600;
+    private static final double INTAKE_VEL = 2400;
+    private static final double INTAKE_REVERSE_VEL = -2450;
+
+    // =========================
     // SPIN-UP TIMER
     // =========================
-    // Times how long the flywheel takes to get "ready" (within 100 ticks/sec of target).
-    // Starts whenever the shooter is NOT ready (start-up, speed change, dip after a shot)
-    // and stops the moment it becomes ready.
 
     private boolean spinUpTiming = false;
     private long spinUpStartNs = 0;
-    private double spinUpSeconds = 0;      // live while spinning up, final once ready
-    private double lastSpinUpSeconds = 0;  // most recent completed spin-up
+    private double spinUpSeconds = 0;
+    private double lastSpinUpSeconds = 0;
 
     // =========================
-    // LIMELIGHT AUTO AIM
+    // LIMELIGHT
     // =========================
 
-    private boolean IsAutoAming = false;
+    // Blue goal AprilTag ID (DECODE). Set to -1 to accept any tag. VERIFY on your field/pipeline.
+    private static final int TARGET_TAG_ID = 20;
+    private static final long MAX_STALENESS_MS = 100;
+
     private boolean limelightHasTarget = false;
+    private boolean newLlFrame = false;
+    private double lastLlTimestamp = -1;
 
     private double limelightTx = 0;
-    private double AutoPower = 0;
+    private double limelightTy = 0;
 
-    // Auto-aim PIDF tuning. Output is drivetrain turn power.
-    private static final double AIM_P = 0.023;
-    private static final double AIM_I = 0.00015;
-    private static final double AIM_D = 0.001;
-    private static final double AIM_F = 0.08;
-    private static final double AIM_TOLERANCE_DEG = 1.25;
-    private static final double AIM_MAX_POWER = 0.50;
-    private static final double AIM_MIN_POWER = 0.10;
-    private static final double AIM_INTEGRAL_LIMIT = 80.0;
+    // =========================
+    // AUTO AIM (IMU fast loop, Limelight sets the target heading)
+    // =========================
 
-    private double aimIntegral = 0;
-    private double previousAimError = 0;
-    private long previousAimTimeNs = 0;
+    private boolean isAutoAiming = false;
+    private boolean aimed = false;
+    private double targetYawDeg = 0;
+    private double autoPower = 0;
+    private double aimErrorDeg = 0;
+
+    private static final double AIM_KP = 0.02;
+    private static final double AIM_KD = 0.0015;
+    private static final double AIM_KS = 0.05;          // small friction boost, only outside deadband
+    private static final double AIM_ENTER_DEG = 1.0;    // considered aimed
+    private static final double AIM_EXIT_DEG = 2.0;     // start moving again (hysteresis)
+    private static final double AIM_MAX = 0.5;
 
     // =========================
     // LIMELIGHT DISTANCE
     // =========================
-    // TUNE THESE THREE VALUES FOR YOUR ROBOT (all in inches / degrees):
-    //  - CAMERA_HEIGHT_IN:       floor to the center of the Limelight lens
-    //  - TARGET_HEIGHT_IN:       floor to the center of the AprilTag / target
-    //  - CAMERA_MOUNT_ANGLE_DEG: how far the camera is tilted UP from horizontal
+    // TUNE: inches / degrees
     private static final double CAMERA_HEIGHT_IN = 10.0;
     private static final double TARGET_HEIGHT_IN = 29.5;
-    private static final double CAMERA_MOUNT_ANGLE_DEG = 20.0;
-
-    // Distance from the camera to the shooter / robot center (forward = positive).
-    // Set to 0 if you just want camera-to-target distance.
+    private static final double CAMERA_MOUNT_ANGLE_DEG = 45.0;
     private static final double CAMERA_FORWARD_OFFSET_IN = 0.0;
-
-    // Smoothing: 1.0 = no smoothing, lower = smoother but slower to react
     private static final double DISTANCE_FILTER_ALPHA = 0.3;
 
-    private double limelightTy = 0;
-    private double distanceInches = 0;          // raw
-    private double filteredDistanceInches = 0;  // smoothed
+    private double distanceInches = 0;
+    private double filteredDistanceInches = 0;
     private boolean hasDistance = false;
 
     // =========================
     // INTAKE PROTECTION
     // =========================
 
-    private boolean my_4_balls = false;
+    private boolean intakeFull = false;
 
-    // Intake-full threshold is adjusted for battery voltage:
-    //   threshold = base * (NOMINAL_VOLTAGE / battery) ^ VOLTAGE_COMP_GAIN
-    //   gain  1.0 = threshold goes UP as the battery drops (current rises on a weak battery)
-    //   gain  0.0 = no compensation (fixed threshold)
-    //   gain -1.0 = threshold goes DOWN as the battery drops
-    // Watch "Intake Amps" with a full load on a fresh and a worn battery, then tune.
-    private static final double INTAKE_STOP_AMPS_AT_NOMINAL = 3.45;  // tune at ~12V battery
+    private static final double INTAKE_STOP_AMPS_AT_NOMINAL = 3.425;
     private static final double VOLTAGE_COMP_GAIN = 1.0;
     private static final double NOMINAL_VOLTAGE = 12.0;
     private static final double MIN_VOLTAGE_CLAMP = 9.0;
     private static final double MAX_VOLTAGE_CLAMP = 14.0;
+
+    // Ignore inrush current after the intake (re)starts, and require sustained over-current
+    private static final long INTAKE_STARTUP_IGNORE_MS = 400;
+    private static final long INTAKE_FULL_DEBOUNCE_MS = 250;
+
+    private final ElapsedTime intakeRunTimer = new ElapsedTime();
+    private final ElapsedTime overCurrentTimer = new ElapsedTime();
+    private boolean overCurrentActive = false;
+    private boolean wasIntakeRunning = false;
 
     private VoltageSensor voltageSensor;
     private double batteryVoltage = NOMINAL_VOLTAGE;
@@ -168,21 +190,36 @@ public class Blue_Teleop extends LinearOpMode {
 
     private SparkFunLEDStick led;
 
-    private static final int LED_BRIGHTNESS = 10;  // 0-31, keep low to save battery
+    private static final int LED_BRIGHTNESS = 5;
 
-    private static final int LED_COLOR_INTAKING = Color.rgb(255, 120, 0);  // orange
+    private static final int LED_COLOR_INTAKING = Color.rgb(255, 120, 0);
     private static final int LED_COLOR_FULL = Color.GREEN;
     private static final int LED_COLOR_REVERSE = Color.RED;
     private static final int LED_COLOR_SHOOTING = Color.MAGENTA;
 
-    // Wait after sending "off" so the I2C write actually goes out before the opmode ends
     private static final long LED_OFF_DELAY_MS = 500;
 
-    private int lastLedColor = -1;  // so we only write to I2C when the color changes
-    private boolean ledOk = false;   // false = LED missing/failed, opmode keeps running without it
+    private int lastLedColor = -1;
+    private int lastPadColor = -1;   // gamepad light bar, only written on change
+    private boolean ledOk = false;
+
+    // =========================
+    // LOOP TIMING
+    // =========================
+
+    private final ElapsedTime loopTimer = new ElapsedTime();
+    private double loopMs = 0;
 
     @Override
     public void runOpMode() {
+
+        // =========================
+        // BULK CACHING
+        // =========================
+
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) {
+            hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
+        }
 
         // =========================
         // HARDWARE MAPPING
@@ -216,9 +253,7 @@ public class Blue_Teleop extends LinearOpMode {
             telemetry.addLine("LED stick NOT found - check config name 'led'");
         }
 
-        // =========================
-        // HOOD INITIAL POSITION
-        // =========================
+        gamepad1.setLedColor(0, 0, 1, Gamepad.LED_DURATION_CONTINUOUS);
 
         hood.setPosition(hoodPosition);
 
@@ -227,7 +262,7 @@ public class Blue_Teleop extends LinearOpMode {
         // =========================
 
         limelight = hardwareMap.get(Limelight3A.class, "limelight");
-
+        limelight.setPollRateHz(100);
         limelight.pipelineSwitch(0);
         limelight.start();
 
@@ -235,17 +270,10 @@ public class Blue_Teleop extends LinearOpMode {
         // DRIVETRAIN PIDF
         // =========================
 
-        br.setVelocityPIDFCoefficients(
-                1.0708, 0.1071, 0, 10.7087);
-
-        fr.setVelocityPIDFCoefficients(
-                1.0435, 0.1044, 0, 10.4254);
-
-        fl.setVelocityPIDFCoefficients(
-                1.785, 0.1078, 0, 10.70882);
-
-        bl.setVelocityPIDFCoefficients(
-                0.9999, 0.0999, 0, 9.999);
+        br.setVelocityPIDFCoefficients(1.0708, 0.1071, 0, 10.7087);
+        fr.setVelocityPIDFCoefficients(1.0435, 0.1044, 0, 10.4254);
+        fl.setVelocityPIDFCoefficients(1.785, 0.1078, 0, 10.70882);
+        bl.setVelocityPIDFCoefficients(0.9999, 0.0999, 0, 9.999);
 
         // =========================
         // FLYWHEEL PIDF
@@ -255,17 +283,12 @@ public class Blue_Teleop extends LinearOpMode {
                 SHOOTER_P, SHOOTER_I, SHOOTER_D, SHOOTER_F);
 
         // =========================
-        // MOTOR DIRECTIONS
+        // MOTOR DIRECTIONS / MODES
         // =========================
 
         bl.setDirection(DcMotor.Direction.REVERSE);
         fl.setDirection(DcMotor.Direction.REVERSE);
-
         intake.setDirection(DcMotor.Direction.REVERSE);
-
-        // =========================
-        // MOTOR MODES
-        // =========================
 
         fl.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         fr.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
@@ -273,7 +296,6 @@ public class Blue_Teleop extends LinearOpMode {
         br.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-
         intake.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         transfur.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
@@ -286,19 +308,13 @@ public class Blue_Teleop extends LinearOpMode {
         fr.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
         br.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
 
-        transfur.setZeroPowerBehavior(
-                DcMotor.ZeroPowerBehavior.BRAKE);
-
-        intake.setZeroPowerBehavior(
-                DcMotor.ZeroPowerBehavior.FLOAT);
-
-        shooter.setZeroPowerBehavior(
-                DcMotor.ZeroPowerBehavior.FLOAT);
+        transfur.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        shooter.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
 
         // =========================
         // BATTERY VOLTAGE SENSOR
         // =========================
-        // (intake-full threshold is computed each loop in updateBattery())
 
         voltageSensor = hardwareMap.voltageSensor.iterator().next();
         updateBattery();
@@ -322,13 +338,13 @@ public class Blue_Teleop extends LinearOpMode {
         waitForStart();
 
         if (isStopRequested()) {
-            ledOff();
-            sleep(250);
             limelight.stop();
+            ledOff();
             return;
         }
 
         imu.resetYaw();
+        loopTimer.reset();
 
         // =========================
         // MAIN LOOP
@@ -338,26 +354,26 @@ public class Blue_Teleop extends LinearOpMode {
 
             while (opModeIsActive()) {
 
+                loopMs = loopTimer.milliseconds();
+                loopTimer.reset();
+
+                // Read hardware once per loop
+                yawDeg = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.DEGREES);
+                shooterVel = shooter.getVelocity();
+                intakeAmps = intake.getCurrent(CurrentUnit.AMPS);
+
                 updateBattery();
-
                 updateLimelight();
-
                 hoodControl();
-
                 intake2();
-
                 shooter2();
-
                 updateLeds();
-
                 drivetrain();
-
                 telemetryUpdate();
             }
 
         } finally {
-            limelight.stop();
-            ledOff();
+            // Stop motors FIRST, then slow stuff (LED has a blocking delay)
             fl.setPower(0);
             fr.setPower(0);
             bl.setPower(0);
@@ -366,6 +382,14 @@ public class Blue_Teleop extends LinearOpMode {
             shooter.setVelocity(0);
             intake.setVelocity(0);
             transfur.setVelocity(0);
+
+            try {
+                gamepad1.setLedColor(0, 0, 0, 250);
+            } catch (Exception ignored) {
+            }
+
+            limelight.stop();
+            ledOff();
         }
     }
 
@@ -380,40 +404,18 @@ public class Blue_Teleop extends LinearOpMode {
         boolean cross = gamepad1.cross;
         boolean triangle = gamepad1.triangle;
 
-        // Manual fine adjustment: raise hood
-        if (hoodUp && !previousHoodUp) {
-            hoodPosition += HOOD_STEP;
-        }
-
-        // Manual fine adjustment: lower hood
-        if (hoodDown && !previousHoodDown) {
-            hoodPosition -= HOOD_STEP;
-        }
-
-        // Preset: Cross = 0.25
-        if (cross && !previousCross) {
-            hoodPosition = HOOD_PRESET_LOW;
-        }
-
-        // Preset: Triangle = 0.35
-        if (triangle && !previousTriangle) {
-            hoodPosition = HOOD_PRESET_HIGH;
-        }
+        if (hoodUp && !previousHoodUp) hoodPosition += HOOD_STEP;
+        if (hoodDown && !previousHoodDown) hoodPosition -= HOOD_STEP;
+        if (cross && !previousCross) hoodPosition = HOOD_PRESET_LOW;
+        if (triangle && !previousTriangle) hoodPosition = HOOD_PRESET_HIGH;
 
         previousHoodUp = hoodUp;
         previousHoodDown = hoodDown;
         previousCross = cross;
         previousTriangle = triangle;
 
-        // Servo limits
-        hoodPosition = Math.max(
-                HOOD_MIN,
-                Math.min(HOOD_MAX, hoodPosition)
-        );
-
+        hoodPosition = Math.max(HOOD_MIN, Math.min(HOOD_MAX, hoodPosition));
         hood.setPosition(hoodPosition);
-
-        telemetry.addData("Hood Position", "%.2f", hoodPosition);
     }
 
     // =========================
@@ -424,39 +426,50 @@ public class Blue_Teleop extends LinearOpMode {
 
         LLResult result = limelight.getLatestResult();
 
-        if (result != null && result.isValid()) {
+        boolean good = false;
+        double tx = 0, ty = 0;
 
-            limelightTx = result.getTx();
-            limelightTy = result.getTy();
+        if (result != null && result.isValid() && result.getStaleness() < MAX_STALENESS_MS) {
+
+            for (LLResultTypes.FiducialResult f : result.getFiducialResults()) {
+                if (TARGET_TAG_ID < 0 || f.getFiducialId() == TARGET_TAG_ID) {
+                    tx = f.getTargetXDegrees();
+                    ty = f.getTargetYDegrees();
+                    good = true;
+                    break;
+                }
+            }
+        }
+
+        if (good) {
+
+            newLlFrame = result.getTimestamp() != lastLlTimestamp;
+            lastLlTimestamp = result.getTimestamp();
+
+            limelightTx = tx;
+            limelightTy = ty;
             limelightHasTarget = true;
 
-            updateDistance(limelightTy);
+            if (newLlFrame) updateDistance(ty);
 
         } else {
 
+            newLlFrame = false;
             limelightTx = 0;
             limelightTy = 0;
             limelightHasTarget = false;
 
-            // No target -> no valid distance. Reset filter so the next
-            // reading doesn't blend with a stale value.
             hasDistance = false;
             distanceInches = 0;
             filteredDistanceInches = 0;
         }
     }
 
-    // =========================
-    // LIMELIGHT DISTANCE
-    // =========================
     // distance = (targetHeight - cameraHeight) / tan(cameraMountAngle + ty)
-
     private void updateDistance(double ty) {
 
-        double totalAngleRad = Math.toRadians(CAMERA_MOUNT_ANGLE_DEG + ty);
-        double tanAngle = Math.tan(totalAngleRad);
+        double tanAngle = Math.tan(Math.toRadians(CAMERA_MOUNT_ANGLE_DEG + ty));
 
-        // Guard against divide-by-zero / negative angles (bad geometry or bad reading)
         if (tanAngle <= 0.01) {
             hasDistance = false;
             return;
@@ -467,7 +480,6 @@ public class Blue_Teleop extends LinearOpMode {
                         + CAMERA_FORWARD_OFFSET_IN;
 
         if (!hasDistance) {
-            // First valid reading: start the filter here
             filteredDistanceInches = distanceInches;
         } else {
             filteredDistanceInches =
@@ -481,57 +493,50 @@ public class Blue_Teleop extends LinearOpMode {
     // =========================
     // HORIZONTAL AUTO AIM
     // =========================
+    // Limelight tx -> target heading (only on NEW frames).
+    // PD runs on IMU heading error every loop (no camera latency in the fast loop).
+    //
+    // Sign convention: IMU yaw is CCW-positive. Positive tx = target to the right,
+    // so target heading = yaw - tx. error > 0 means "turn right" (positive rotate).
 
-    private void auto_aim() {
+    private void autoAim() {
 
         if (gamepad1.left_bumper && limelightHasTarget) {
 
-            IsAutoAming = true;
-            double error = limelightTx;
-            long nowNs = System.nanoTime();
+            // Fresh engage or new frame: refresh the target heading
+            if (!isAutoAiming || newLlFrame) {
+                targetYawDeg = yawDeg - limelightTx;
+            }
+            if (!isAutoAiming) aimed = false;
+            isAutoAiming = true;
 
-            if (Math.abs(error) <= AIM_TOLERANCE_DEG) {
-                aimIntegral = 0;
-                AutoPower = 0;
-            } else {
-                double dt = previousAimTimeNs == 0
-                        ? 0.02
-                        : (nowNs - previousAimTimeNs) / 1e9;
-                dt = Math.max(0.005, Math.min(0.1, dt));
+            double error = AngleUnit.DEGREES.normalize(yawDeg - targetYawDeg);
+            // + when the robot is turning right
+            double turnRateRight =
+                    -imu.getRobotAngularVelocity(AngleUnit.DEGREES).zRotationRate;
 
-                aimIntegral += error * dt;
-                aimIntegral = Math.max(-AIM_INTEGRAL_LIMIT,
-                        Math.min(AIM_INTEGRAL_LIMIT, aimIntegral));
+            aimErrorDeg = error;
 
-                double derivative = previousAimTimeNs == 0
-                        ? 0
-                        : (error - previousAimError) / dt;
-                double output = AIM_P * error
-                        + AIM_I * aimIntegral
-                        + AIM_D * derivative
-                        + AIM_F * Math.signum(error);
-
-                output = Math.max(-AIM_MAX_POWER,
-                        Math.min(AIM_MAX_POWER, output));
-                if (Math.abs(output) < AIM_MIN_POWER) {
-                    output = AIM_MIN_POWER * Math.signum(error);
-                }
-                AutoPower = output;
+            if (Math.abs(error) < AIM_ENTER_DEG) {
+                aimed = true;
+            } else if (Math.abs(error) > AIM_EXIT_DEG) {
+                aimed = false;
             }
 
-            previousAimError = error;
-            previousAimTimeNs = nowNs;
-            telemetry.addData("Auto Aim", "PIDF Active");
-            telemetry.addData("Auto Power", AutoPower);
-            telemetry.addData("TX Error", error);
+            if (aimed) {
+                autoPower = 0;
+            } else {
+                double out = AIM_KP * error
+                        - AIM_KD * turnRateRight
+                        + AIM_KS * Math.signum(error);
+                autoPower = Math.max(-AIM_MAX, Math.min(AIM_MAX, out));
+            }
 
         } else {
-            IsAutoAming = false;
-            AutoPower = 0;
-            aimIntegral = 0;
-            previousAimError = 0;
-            previousAimTimeNs = 0;
-            telemetry.addData("Auto Aim", gamepad1.left_bumper ? "No Target" : "Off");
+            isAutoAiming = false;
+            aimed = false;
+            autoPower = 0;
+            aimErrorDeg = 0;
         }
     }
 
@@ -543,7 +548,6 @@ public class Blue_Teleop extends LinearOpMode {
 
         double v = voltageSensor.getVoltage();
 
-        // Ignore bad readings, keep the last good value
         if (v > 1.0) {
             batteryVoltage = v;
         }
@@ -565,27 +569,46 @@ public class Blue_Teleop extends LinearOpMode {
     private void intake2() {
 
         if (gamepad1.circle) {
-            my_4_balls = false;
+            intakeFull = false;
         }
 
         if (gamepad1.share) {
-            intake.setVelocity(-2450);
+            intake.setVelocity(INTAKE_REVERSE_VEL);
+            wasIntakeRunning = false;
+            overCurrentActive = false;
             return;
         }
 
         if (gamepad1.right_bumper) {
-            my_4_balls = false;
+            intakeFull = false;
+            overCurrentActive = false;
 
-        } else if (intake.getCurrent(CurrentUnit.AMPS) > intakeStopAmps) {
-            my_4_balls = true;
+        } else if (!intakeFull) {
+
+            boolean over = intakeAmps > intakeStopAmps
+                    && intakeRunTimer.milliseconds() > INTAKE_STARTUP_IGNORE_MS;
+
+            if (over) {
+                if (!overCurrentActive) {
+                    overCurrentActive = true;
+                    overCurrentTimer.reset();
+                } else if (overCurrentTimer.milliseconds() > INTAKE_FULL_DEBOUNCE_MS) {
+                    intakeFull = true;
+                }
+            } else {
+                overCurrentActive = false;
+            }
         }
 
-        if (my_4_balls) {
-            intake.setVelocity(0);
+        boolean running = !intakeFull;
 
-        } else {
-            intake.setVelocity(2400);
+        // Intake just (re)started -> ignore inrush current for a moment
+        if (running && !wasIntakeRunning) {
+            intakeRunTimer.reset();
         }
+        wasIntakeRunning = running;
+
+        intake.setVelocity(running ? INTAKE_VEL : 0);
     }
 
     // =========================
@@ -597,25 +620,32 @@ public class Blue_Teleop extends LinearOpMode {
         int color;
 
         if (gamepad1.share) {
-            color = LED_COLOR_REVERSE;      // spitting balls out
-
-        } else if (my_4_balls) {
-            color = LED_COLOR_FULL;         // intake full / locked out
-
+            color = LED_COLOR_REVERSE;
+        } else if (intakeFull) {
+            color = LED_COLOR_FULL;
         } else if (gamepad1.right_bumper) {
-            color = LED_COLOR_SHOOTING;     // feeding the shooter
-
+            color = LED_COLOR_SHOOTING;
         } else {
-            color = LED_COLOR_INTAKING;     // intaking, not full yet
+            color = LED_COLOR_INTAKING;
         }
 
-        // Only talk to the LED stick when something actually changed
+        // Controller light bar (works even if the LED stick is missing)
+        if (color != lastPadColor) {
+            gamepad1.setLedColor(
+                    Color.red(color) / 255.0,
+                    Color.green(color) / 255.0,
+                    Color.blue(color) / 255.0,
+                    Gamepad.LED_DURATION_CONTINUOUS);
+            lastPadColor = color;
+        }
+
+        // LED stick: only talk to it when something actually changed
         if (ledOk && color != lastLedColor) {
             try {
                 led.setColor(color);
                 lastLedColor = color;
             } catch (Exception e) {
-                ledOk = false;  // give up on the LED, never crash the opmode
+                ledOk = false;
             }
         }
     }
@@ -625,14 +655,11 @@ public class Blue_Teleop extends LinearOpMode {
         try {
             led.turnAllOff();
 
-            // Wait for the I2C write to go out. Uses a timer instead of sleep()
-            // because sleep() can return instantly once a stop has been requested.
             long end = System.nanoTime() + LED_OFF_DELAY_MS * 1_000_000L;
             while (System.nanoTime() < end) {
                 // wait
             }
 
-            // Send it again in case the first write was dropped
             led.turnAllOff();
         } catch (Exception ignored) {
         }
@@ -642,10 +669,23 @@ public class Blue_Teleop extends LinearOpMode {
     // SHOOTER AND TRANSFER
     // =========================
 
-    // Spin-up timer: runs while the shooter is not ready, stops when it becomes ready
+    private boolean isShooterReady() {
+
+        boolean inBand = flyspeed > 0
+                && Math.abs(shooterVel - flyspeed) <= READY_TOLERANCE;
+
+        if (!inBand) {
+            readySinceNs = 0;
+            return false;
+        }
+
+        if (readySinceNs == 0) readySinceNs = System.nanoTime();
+
+        return System.nanoTime() - readySinceNs >= READY_HOLD_NS;
+    }
+
     private void updateSpinUpTimer(boolean shooterReady) {
 
-        // Shooter off -> nothing to time
         if (flyspeed <= 0) {
             spinUpTiming = false;
             spinUpSeconds = 0;
@@ -673,43 +713,27 @@ public class Blue_Teleop extends LinearOpMode {
 
         boolean up = gamepad1.dpad_up;
         boolean down = gamepad1.dpad_down;
-        boolean y = gamepad1.square;
+        boolean square = gamepad1.square;
 
-        if (up && !previousUp) {
-            flyspeed += SPEED_STEP;
-        }
-
-        if (down && !previousDown) {
-            flyspeed -= SPEED_STEP;
-        }
-
-        if (y && !previousY) {
-            flyspeed = 1550;
-        }
+        if (up && !previousUp) flyspeed += SPEED_STEP;
+        if (down && !previousDown) flyspeed -= SPEED_STEP;
+        if (square && !previousSquare) flyspeed = FLYSPEED_PRESET;
 
         previousUp = up;
         previousDown = down;
-        previousY = y;
+        previousSquare = square;
 
-        flyspeed = Math.max(
-                MIN_FLYSPEED,
-                Math.min(MAX_FLYSPEED, flyspeed)
-        );
-
-        double actualShooterVelocity = shooter.getVelocity();
+        flyspeed = Math.max(MIN_FLYSPEED, Math.min(MAX_FLYSPEED, flyspeed));
 
         shooter.setVelocity(flyspeed);
 
-        boolean shooterReady = actualShooterVelocity >= flyspeed - 100;
+        boolean shooterReady = isShooterReady();
 
         updateSpinUpTimer(shooterReady);
 
         if (gamepad1.right_bumper && shooterReady) {
-
-            transfur.setVelocity(2600);
-
+            transfur.setVelocity(TRANSFER_VEL);
         } else {
-
             transfur.setVelocity(0);
         }
     }
@@ -728,28 +752,62 @@ public class Blue_Teleop extends LinearOpMode {
         double right = gamepad1.left_stick_x;
         double rotate = gamepad1.right_stick_x;
 
-        auto_aim();
+        autoAim();
 
-        if (IsAutoAming && limelightHasTarget) {
-            rotate = AutoPower;
+        if (isAutoAiming && limelightHasTarget) {
+            // Auto-aim gets full drivetrain priority
+            forward = 0;
+            right = 0;
+            rotate = autoPower;
         }
 
         if (gamepad1.options) {
-
-            drive(
-                    forward,
-                    right,
-                    rotate
-            );
-
+            drive(forward, right, rotate);                // robot-centric
         } else {
-
-            drive_relative(
-                    forward,
-                    right,
-                    rotate
-            );
+            driveFieldCentric(forward, right, rotate);
         }
+    }
+
+    // =========================
+    // FIELD CENTRIC
+    // =========================
+
+    private void driveFieldCentric(double forward, double right, double rotate) {
+
+        double yawRad = Math.toRadians(yawDeg);
+        double cos = Math.cos(yawRad);
+        double sin = Math.sin(yawRad);
+
+        // Rotate the stick vector by -yaw into the robot frame
+        double rightRobot = right * cos + forward * sin;
+        double forwardRobot = forward * cos - right * sin;
+
+        drive(forwardRobot, rightRobot, rotate);
+    }
+
+    // =========================
+    // MECANUM DRIVE
+    // =========================
+
+    private void drive(double forward, double right, double rotate) {
+
+        double frontLeftPower = forward + right + rotate;
+        double frontRightPower = forward - right - rotate;
+        double backRightPower = forward + right - rotate;
+        double backLeftPower = forward - right + rotate;
+
+        double maxPower = Math.max(
+                1.0,
+                Math.max(
+                        Math.max(Math.abs(frontLeftPower), Math.abs(frontRightPower)),
+                        Math.max(Math.abs(backLeftPower), Math.abs(backRightPower))
+                )
+        );
+
+        fl.setPower(frontLeftPower / maxPower);
+        fr.setPower(frontRightPower / maxPower);
+        bl.setPower(backLeftPower / maxPower);
+        br.setPower(backRightPower / maxPower);
     }
 
     // =========================
@@ -758,167 +816,56 @@ public class Blue_Teleop extends LinearOpMode {
 
     private void telemetryUpdate() {
 
+        telemetry.addData("Loop (ms)", "%.1f", loopMs);
+
         telemetry.addLine("=== FLYWHEEL ===");
-
         telemetry.addData("Target Speed", flyspeed);
-        telemetry.addData("Actual Speed", shooter.getVelocity());
-
-        telemetry.addData(
-                "Shooter Control",
-                "VELOCITY HOLD"
-        );
-
+        telemetry.addData("Actual Speed", shooterVel);
         telemetry.addData("Shooter Power", shooter.getPower());
-
-        telemetry.addData(
-                "Shooter Ready",
-                shooter.getVelocity() >= flyspeed - 100
-                        ? "YES" : "WAITING"
-        );
-
-        telemetry.addData(
-                "Speed Difference",
-                flyspeed - shooter.getVelocity()
-        );
-
-        telemetry.addData(
-                "Spin-Up Timer",
+        telemetry.addData("Shooter Ready", readySinceNs != 0
+                && System.nanoTime() - readySinceNs >= READY_HOLD_NS ? "YES" : "WAITING");
+        telemetry.addData("Speed Difference", flyspeed - shooterVel);
+        telemetry.addData("Spin-Up Timer",
                 spinUpTiming
                         ? String.format("%.2f s (spinning up...)", spinUpSeconds)
                         : "READY");
-
         telemetry.addData("Last Spin-Up (s)", "%.2f", lastSpinUpSeconds);
+        telemetry.addData("Shooter Current", shooter.getCurrent(CurrentUnit.AMPS));
 
-        telemetry.addData(
-                "Shooter Current",
-                shooter.getCurrent(CurrentUnit.AMPS)
-        );
-
-        telemetry.addLine("================");
-
-        telemetry.addLine("=== LIMELIGHT ===");
-
-        telemetry.addData("Auto Aiming", IsAutoAming);
+        telemetry.addLine("=== LIMELIGHT / AIM ===");
+        telemetry.addData("Auto Aiming", isAutoAiming);
+        telemetry.addData("Aimed", aimed);
         telemetry.addData("Limelight Target", limelightHasTarget);
-        telemetry.addData("TX", limelightTx);
-        telemetry.addData("TY", limelightTy);
-        telemetry.addData("Auto Power", AutoPower);
-
-        telemetry.addLine("--- DISTANCE ---");
+        telemetry.addData("TX", "%.2f", limelightTx);
+        telemetry.addData("TY", "%.2f", limelightTy);
+        telemetry.addData("Aim Error (deg)", "%.2f", aimErrorDeg);
+        telemetry.addData("Target Yaw", "%.2f", targetYawDeg);
+        telemetry.addData("Auto Power", "%.3f", autoPower);
 
         if (hasDistance) {
             telemetry.addData("Distance (in)", "%.1f", filteredDistanceInches);
-            telemetry.addData("Distance (cm)", "%.1f", filteredDistanceInches * 2.54);
             telemetry.addData("Distance (ft)", "%.2f", filteredDistanceInches / 12.0);
             telemetry.addData("Distance Raw (in)", "%.1f", distanceInches);
         } else {
             telemetry.addData("Distance", "NO TARGET");
         }
 
-        telemetry.addLine("================");
-
+        telemetry.addLine("=== DRIVE / INTAKE ===");
         telemetry.addData("FR Velocity", fr.getVelocity());
         telemetry.addData("FL Velocity", fl.getVelocity());
         telemetry.addData("BR Velocity", br.getVelocity());
         telemetry.addData("BL Velocity", bl.getVelocity());
 
         telemetry.addData("Intake Velocity", intake.getVelocity());
-
-        telemetry.addData(
-                "Intake Amps",
-                intake.getCurrent(CurrentUnit.AMPS)
-        );
-
-        telemetry.addData("Intake Current Lockout", my_4_balls);
+        telemetry.addData("Intake Amps", "%.2f", intakeAmps);
+        telemetry.addData("Intake Full", intakeFull);
         telemetry.addData("Battery (V)", "%.2f", batteryVoltage);
         telemetry.addData("Intake Stop Threshold (A)", "%.2f", intakeStopAmps);
 
-        telemetry.addData(
-                "Transfer Velocity",
-                transfur.getVelocity()
-        );
-
-        telemetry.addData(
-                "Hood Position",
-                hoodPosition
-        );
-
-        telemetry.addData(
-                "Yaw",
-                imu.getRobotYawPitchRollAngles()
-                        .getYaw(AngleUnit.DEGREES)
-        );
+        telemetry.addData("Transfer Velocity", transfur.getVelocity());
+        telemetry.addData("Hood Position", "%.3f", hoodPosition);
+        telemetry.addData("Yaw", "%.1f", yawDeg);
 
         telemetry.update();
-    }
-
-    // =========================
-    // FIELD CENTRIC
-    // =========================
-
-    private void drive_relative(
-            double forward_relative,
-            double right_relative,
-            double rotate_relative) {
-
-        double theta = Math.atan2(
-                forward_relative,
-                right_relative
-        ) / Math.PI * 180;
-
-        double r = Math.sqrt(
-                forward_relative * forward_relative
-                        + right_relative * right_relative
-        );
-
-        theta = AngleUnit.DEGREES.normalize(
-                theta - imu.getRobotYawPitchRollAngles()
-                        .getYaw(AngleUnit.DEGREES)
-        );
-
-        drive(
-                r * Math.sin(theta / 180 * Math.PI),
-                r * Math.cos(theta / 180 * Math.PI),
-                rotate_relative
-        );
-    }
-
-    // =========================
-    // MECANUM DRIVE
-    // =========================
-
-    private void drive(
-            double forward,
-            double right,
-            double rotate) {
-
-        double frontLeftPower;
-        double frontRightPower;
-        double backRightPower;
-        double backLeftPower;
-
-        frontLeftPower = forward + right + rotate;
-        frontRightPower = forward - right - rotate;
-        backRightPower = forward + right - rotate;
-        backLeftPower = forward - right + rotate;
-
-        double maxPower = Math.max(
-                1.0,
-                Math.max(
-                        Math.max(
-                                Math.abs(frontLeftPower),
-                                Math.abs(frontRightPower)
-                        ),
-                        Math.max(
-                                Math.abs(backLeftPower),
-                                Math.abs(backRightPower)
-                        )
-                )
-        );
-
-        fl.setPower(frontLeftPower / maxPower);
-        fr.setPower(frontRightPower / maxPower);
-        bl.setPower(backLeftPower / maxPower);
-        br.setPower(backRightPower / maxPower);
     }
 }

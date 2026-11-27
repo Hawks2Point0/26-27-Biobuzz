@@ -1,7 +1,7 @@
 /* ============================================================= *
  *                 Turtle Tracer — Auto-Generated                *
  *                                                               *
- *  Version: 2.7.0.                                              *
+ *  Version: 2.7.1.                                              *
  *  Copyright (c) 2026 Matthew Allen                             *
  *                                                               *
  *  THIS FILE IS AUTO-GENERATED — DO NOT EDIT MANUALLY.          *
@@ -12,15 +12,15 @@ package org.firstinspires.ftc.teamcode.Commands.AutoCommands;
 
 import static com.pedropathing.api.Paths.curve;
 import static com.pedropathing.api.Paths.line;
+import static com.pedropathing.api.Paths.path;
 
 import com.pedropathing.api.PoseFactory;
 import com.pedropathing.follower.Follower;
+import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
+import com.pedropathing.paths.interpolator.Interpolator;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
-import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.turtletracerlib.auto.Alliance;
 import com.turtletracerlib.auto.AutoConfig;
@@ -34,26 +34,6 @@ import org.firstinspires.ftc.teamcode.pedro.Constants;
 @Autonomous(name = "shoot_park", group = "Autonomous")
 public class shoot_park extends OpMode {
 
-    // ===== Shooting settings (values taken from Blue_Teleop) =====
-    private static final double SHOOTER_P = 61.8;
-    private static final double SHOOTER_I = 0.1;
-    private static final double SHOOTER_D = 0.1460;
-    private static final double SHOOTER_F = 11.4608;
-
-    private static final double FLY_SPEED = 1650; // Shooter target velocity
-    private static final double READY_TOLERANCE = 100; // Ticks/sec below target still counted as ready
-    private static final double HOOD_POSITION = 0.26;
-    private static final double INTAKE_VELOCITY = 2400;
-    private static final double TRANSFER_VELOCITY = 2600;
-
-    private static final double SPINUP_TIMEOUT_MS = 2000; // Shoot anyway if the flywheel never reaches speed
-    private static final double SHOOT_TIME_MS = 3000; // How long to feed balls into the shooter
-
-    private DcMotorEx shooter;
-    private DcMotorEx intake;
-    private DcMotorEx transfur;
-    private Servo hood;
-
     public Follower follower; // Pathing follower instance
     private final PoseFactory p = PoseFactory.degrees();
     private int pathState; // Current autonomous path state (state machine)
@@ -64,35 +44,16 @@ public class shoot_park extends OpMode {
 
     @Override
     public void init() {
+        // ...
         telemetry.addData("Status", "Initialized");
         telemetry.update();
 
         follower = Constants.create(hardwareMap);
 
-        // Shooting hardware
-        shooter = hardwareMap.get(DcMotorEx.class, "shooter");
-        intake = hardwareMap.get(DcMotorEx.class, "intake");
-        transfur = hardwareMap.get(DcMotorEx.class, "transfur");
-        hood = hardwareMap.get(Servo.class, "hood");
-
-        intake.setDirection(DcMotor.Direction.REVERSE);
-
-        shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        intake.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-        transfur.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-
-        shooter.setVelocityPIDFCoefficients(SHOOTER_P, SHOOTER_I, SHOOTER_D, SHOOTER_F);
-
-        transfur.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-        intake.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-        shooter.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-
-        hood.setPosition(HOOD_POSITION);
-
         pathTimer = new ElapsedTime();
         // Alliance menu: D-pad left/right picks the alliance before Start.
         selector = new AutoSelector<>(
-                new AutoRegistry<AutoContext>().add("2tip_park", c -> c),
+                new AutoRegistry<AutoContext>().add("shoot_park", c -> c),
                 AutoConfig.builder()
                         .baseAlliance(Alliance.RED) // The side these paths are drawn for
                         .mirrorPolicy(MirrorPolicy.FOLLOW_ALLIANCE) // Mirrored when the driver picks the other one
@@ -111,10 +72,6 @@ public class shoot_park extends OpMode {
         ctx = selector.buildSelected(); // The alliance picked, and whether to mirror
         follower.setPose(ctx.pose(p.of(9.000, 135.000, 0.000)));
         paths = new Paths(follower, ctx); // Build paths for that alliance
-
-        // Spin up the flywheel and intake while driving to the shooting spot
-        shooter.setVelocity(FLY_SPEED);
-        intake.setVelocity(INTAKE_VELOCITY);
     }
 
     @Override
@@ -127,25 +84,7 @@ public class shoot_park extends OpMode {
         telemetry.addData("X", follower.pose().x());
         telemetry.addData("Y", follower.pose().y());
         telemetry.addData("Heading", follower.pose().heading());
-        telemetry.addData("Shooter Target", FLY_SPEED);
-        telemetry.addData("Shooter Actual", shooter.getVelocity());
-        telemetry.addData("Shooter Ready", shooterReady());
         telemetry.update();
-    }
-
-    @Override
-    public void stop() {
-        stopShooting();
-        shooter.setVelocity(0);
-        intake.setVelocity(0);
-    }
-
-    private boolean shooterReady() {
-        return shooter.getVelocity() >= FLY_SPEED - READY_TOLERANCE;
-    }
-
-    private void stopShooting() {
-        transfur.setVelocity(0);
     }
 
     public static class Paths {
@@ -181,23 +120,15 @@ public class shoot_park extends OpMode {
                 setPathState(1);
                 break;
             case 1:
-                // Arrived at the shooting spot (flywheel has been spinning up the whole drive)
                 if (!follower.isBusy()) {
                     setPathState(2);
                 }
                 break;
             case 2:
-                // Wait for the flywheel to reach speed (or give up after the timeout)
-                shooter.setVelocity(FLY_SPEED);
-                if (shooterReady() || pathTimer.milliseconds() > SPINUP_TIMEOUT_MS) {
-                    setPathState(3);
-                }
+                setPathState(3);
                 break;
             case 3:
-                // Feed balls into the shooter
-                transfur.setVelocity(TRANSFER_VELOCITY);
-                if (pathTimer.milliseconds() > SHOOT_TIME_MS) {
-                    stopShooting();
+                if (pathTimer.milliseconds() > 1000) {
                     setPathState(4);
                 }
                 break;

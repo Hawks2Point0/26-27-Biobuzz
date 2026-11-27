@@ -1,7 +1,7 @@
 /* ============================================================= *
  *                 Turtle Tracer — Auto-Generated                *
  *                                                               *
- *  Version: 2.7.0.                                              *
+ *  Version: 2.7.1.                                              *
  *  Copyright (c) 2026 Matthew Allen                             *
  *                                                               *
  *  THIS FILE IS AUTO-GENERATED — DO NOT EDIT MANUALLY.          *
@@ -32,7 +32,6 @@ import com.turtletracerlib.auto.MirrorPolicy;
 import org.firstinspires.ftc.teamcode.pedro.Constants;
 
 @Autonomous(name = "park", group = "Autonomous")
-
 public class park extends OpMode {
 
     public Follower follower; // Pathing follower instance
@@ -45,14 +44,14 @@ public class park extends OpMode {
 
     @Override
     public void init() {
-
+        // ...
 
         follower = Constants.create(hardwareMap);
 
         pathTimer = new ElapsedTime();
         // Alliance menu: D-pad left/right picks the alliance before Start.
         selector = new AutoSelector<>(
-                new AutoRegistry<AutoContext>().add("2tip_park", c -> c),
+                new AutoRegistry<AutoContext>().add("park", c -> c),
                 AutoConfig.builder()
                         .baseAlliance(Alliance.RED) // The side these paths are drawn for
                         .mirrorPolicy(MirrorPolicy.FOLLOW_ALLIANCE) // Mirrored when the driver picks the other one
@@ -69,7 +68,7 @@ public class park extends OpMode {
     @Override
     public void start() {
         ctx = selector.buildSelected(); // The alliance picked, and whether to mirror
-        follower.setPose(ctx.pose(p.of(9.000, 134.500, 90.000)));
+        follower.setPose(ctx.pose(p.of(9.000, 135.000, 90.000)));
         paths = new Paths(follower, ctx); // Build paths for that alliance
     }
 
@@ -78,7 +77,7 @@ public class park extends OpMode {
         follower.update(); // Update follower
         pathState = autonomousPathUpdate(); // Update autonomous state machine
 
-        // Log values to Panels and Driver Station
+        // Log values to Driver Station
     }
 
     public static class Paths {
@@ -88,8 +87,8 @@ public class park extends OpMode {
 
         public Paths(Follower follower, AutoContext ctx) {
             DriveToShoot = line(
-                    ctx.pose(p.of(9.000, 134.500, 0.0)),
-                    ctx.pose(p.of(10.000, 118.186, 0.0))
+                    ctx.pose(p.of(9.000, 135.000, 0.0)),
+                    ctx.pose(p.of(11.775, 114.426, 0.0))
             ).constant(ctx.heading(Math.toRadians(90)));
         }
     }
