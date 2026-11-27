@@ -6,6 +6,7 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.IMU;
+import com.qualcomm.robotcore.hardware.LED;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.VoltageSensor;
 import com.qualcomm.hardware.limelightvision.LLResult;
@@ -44,12 +45,18 @@ public class Blue_Teleop extends LinearOpMode {
 
     private double hoodPosition = 0.26;
 
-    private static final double HOOD_STEP = 0.01;
+    private static final double HOOD_STEP = 0.025;
     private static final double HOOD_MIN = 0.0;
     private static final double HOOD_MAX = 0.5;
 
+    // Hood presets (Cross = low, Triangle = high)
+    private static final double HOOD_PRESET_LOW = 0.25;
+    private static final double HOOD_PRESET_HIGH = 0.35;
+
     private boolean previousHoodUp = false;
     private boolean previousHoodDown = false;
+    private boolean previousCross = false;
+    private boolean previousTriangle = false;
 
     // =========================
     // FLYWHEEL SETTINGS
@@ -69,10 +76,22 @@ public class Blue_Teleop extends LinearOpMode {
     // SHOOTER PIDF
     // =========================
 
-    private static final double SHOOTER_P = 61.8;
-    private static final double SHOOTER_I = 0.1;
-    private static final double SHOOTER_D = 0.1460;
-    private static final double SHOOTER_F = 11.4608;
+    private static final double SHOOTER_P = 81.8;
+    private static final double SHOOTER_I = 0.2;
+    private static final double SHOOTER_D = 0;
+    private static final double SHOOTER_F = 11.9588;
+
+    // =========================
+    // SPIN-UP TIMER
+    // =========================
+    // Times how long the flywheel takes to get "ready" (within 100 ticks/sec of target).
+    // Starts whenever the shooter is NOT ready (start-up, speed change, dip after a shot)
+    // and stops the moment it becomes ready.
+
+    private boolean spinUpTiming = false;
+    private long spinUpStartNs = 0;
+    private double spinUpSeconds = 0;      // live while spinning up, final once ready
+    private double lastSpinUpSeconds = 0;  // most recent completed spin-up
 
     // =========================
     // LIMELIGHT AUTO AIM
@@ -83,6 +102,20 @@ public class Blue_Teleop extends LinearOpMode {
 
     private double limelightTx = 0;
     private double AutoPower = 0;
+
+    // Auto-aim PIDF tuning. Output is drivetrain turn power.
+    private static final double AIM_P = 0.023;
+    private static final double AIM_I = 0.00015;
+    private static final double AIM_D = 0.001;
+    private static final double AIM_F = 0.08;
+    private static final double AIM_TOLERANCE_DEG = 1.25;
+    private static final double AIM_MAX_POWER = 0.50;
+    private static final double AIM_MIN_POWER = 0.10;
+    private static final double AIM_INTEGRAL_LIMIT = 80.0;
+
+    private double aimIntegral = 0;
+    private double previousAimError = 0;
+    private long previousAimTimeNs = 0;
 
     // =========================
     // LIMELIGHT DISTANCE
@@ -113,9 +146,14 @@ public class Blue_Teleop extends LinearOpMode {
 
     private boolean my_4_balls = false;
 
-    // Motor current at stall scales with battery voltage (I = V / R), so the
-    // intake-full threshold is scaled to match instead of staying fixed.
-    private static final double INTAKE_STOP_AMPS_AT_NOMINAL = 3.45;  // tune at a fresh ~12V battery
+    // Intake-full threshold is adjusted for battery voltage:
+    //   threshold = base * (NOMINAL_VOLTAGE / battery) ^ VOLTAGE_COMP_GAIN
+    //   gain  1.0 = threshold goes UP as the battery drops (current rises on a weak battery)
+    //   gain  0.0 = no compensation (fixed threshold)
+    //   gain -1.0 = threshold goes DOWN as the battery drops
+    // Watch "Intake Amps" with a full load on a fresh and a worn battery, then tune.
+    private static final double INTAKE_STOP_AMPS_AT_NOMINAL = 3.45;  // tune at ~12V battery
+    private static final double VOLTAGE_COMP_GAIN = 1.0;
     private static final double NOMINAL_VOLTAGE = 12.0;
     private static final double MIN_VOLTAGE_CLAMP = 9.0;
     private static final double MAX_VOLTAGE_CLAMP = 14.0;
@@ -132,10 +170,13 @@ public class Blue_Teleop extends LinearOpMode {
 
     private static final int LED_BRIGHTNESS = 10;  // 0-31, keep low to save battery
 
-    private static final int LED_COLOR_INTAKING = Color.RED;  // orange
+    private static final int LED_COLOR_INTAKING = Color.rgb(255, 120, 0);  // orange
     private static final int LED_COLOR_FULL = Color.GREEN;
-    private static final int LED_COLOR_REVERSE = Color.MAGENTA;
-    private static final int LED_COLOR_SHOOTING = Color.BLUE;
+    private static final int LED_COLOR_REVERSE = Color.RED;
+    private static final int LED_COLOR_SHOOTING = Color.MAGENTA;
+
+    // Wait after sending "off" so the I2C write actually goes out before the opmode ends
+    private static final long LED_OFF_DELAY_MS = 500;
 
     private int lastLedColor = -1;  // so we only write to I2C when the color changes
     private boolean ledOk = false;   // false = LED missing/failed, opmode keeps running without it
@@ -232,6 +273,7 @@ public class Blue_Teleop extends LinearOpMode {
         br.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
         shooter.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+
         intake.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         transfur.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
 
@@ -281,6 +323,7 @@ public class Blue_Teleop extends LinearOpMode {
 
         if (isStopRequested()) {
             ledOff();
+            sleep(250);
             limelight.stop();
             return;
         }
@@ -313,7 +356,8 @@ public class Blue_Teleop extends LinearOpMode {
             }
 
         } finally {
-
+            limelight.stop();
+            ledOff();
             fl.setPower(0);
             fr.setPower(0);
             bl.setPower(0);
@@ -322,10 +366,6 @@ public class Blue_Teleop extends LinearOpMode {
             shooter.setVelocity(0);
             intake.setVelocity(0);
             transfur.setVelocity(0);
-
-            ledOff();
-
-            limelight.stop();
         }
     }
 
@@ -337,19 +377,33 @@ public class Blue_Teleop extends LinearOpMode {
 
         boolean hoodUp = gamepad1.dpad_right;
         boolean hoodDown = gamepad1.dpad_left;
+        boolean cross = gamepad1.cross;
+        boolean triangle = gamepad1.triangle;
 
-        // Raise hood
+        // Manual fine adjustment: raise hood
         if (hoodUp && !previousHoodUp) {
             hoodPosition += HOOD_STEP;
         }
 
-        // Lower hood
+        // Manual fine adjustment: lower hood
         if (hoodDown && !previousHoodDown) {
             hoodPosition -= HOOD_STEP;
         }
 
+        // Preset: Cross = 0.25
+        if (cross && !previousCross) {
+            hoodPosition = HOOD_PRESET_LOW;
+        }
+
+        // Preset: Triangle = 0.35
+        if (triangle && !previousTriangle) {
+            hoodPosition = HOOD_PRESET_HIGH;
+        }
+
         previousHoodUp = hoodUp;
         previousHoodDown = hoodDown;
+        previousCross = cross;
+        previousTriangle = triangle;
 
         // Servo limits
         hoodPosition = Math.max(
@@ -430,35 +484,54 @@ public class Blue_Teleop extends LinearOpMode {
 
     private void auto_aim() {
 
-        if (gamepad1.left_bumper) {
+        if (gamepad1.left_bumper && limelightHasTarget) {
 
             IsAutoAming = true;
+            double error = limelightTx;
+            long nowNs = System.nanoTime();
 
-            if (limelightHasTarget) {
-
-                double tx = limelightTx;
-
-                AutoPower = Math.abs(tx) / 43.5;
-
-                if (AutoPower < 0.175) {
-                    AutoPower = 0.125;
-                }
-
-                telemetry.addData("Auto Aim", "Active");
-                telemetry.addData("Auto Power", AutoPower);
-                telemetry.addData("TX", tx);
-
-            } else {
-
+            if (Math.abs(error) <= AIM_TOLERANCE_DEG) {
+                aimIntegral = 0;
                 AutoPower = 0;
+            } else {
+                double dt = previousAimTimeNs == 0
+                        ? 0.02
+                        : (nowNs - previousAimTimeNs) / 1e9;
+                dt = Math.max(0.005, Math.min(0.1, dt));
 
-                telemetry.addData("Auto Aim", "No Target");
+                aimIntegral += error * dt;
+                aimIntegral = Math.max(-AIM_INTEGRAL_LIMIT,
+                        Math.min(AIM_INTEGRAL_LIMIT, aimIntegral));
+
+                double derivative = previousAimTimeNs == 0
+                        ? 0
+                        : (error - previousAimError) / dt;
+                double output = AIM_P * error
+                        + AIM_I * aimIntegral
+                        + AIM_D * derivative
+                        + AIM_F * Math.signum(error);
+
+                output = Math.max(-AIM_MAX_POWER,
+                        Math.min(AIM_MAX_POWER, output));
+                if (Math.abs(output) < AIM_MIN_POWER) {
+                    output = AIM_MIN_POWER * Math.signum(error);
+                }
+                AutoPower = output;
             }
 
-        } else {
+            previousAimError = error;
+            previousAimTimeNs = nowNs;
+            telemetry.addData("Auto Aim", "PIDF Active");
+            telemetry.addData("Auto Power", AutoPower);
+            telemetry.addData("TX Error", error);
 
+        } else {
             IsAutoAming = false;
             AutoPower = 0;
+            aimIntegral = 0;
+            previousAimError = 0;
+            previousAimTimeNs = 0;
+            telemetry.addData("Auto Aim", gamepad1.left_bumper ? "No Target" : "Off");
         }
     }
 
@@ -481,7 +554,8 @@ public class Blue_Teleop extends LinearOpMode {
         );
 
         intakeStopAmps =
-                INTAKE_STOP_AMPS_AT_NOMINAL * (clamped / NOMINAL_VOLTAGE);
+                INTAKE_STOP_AMPS_AT_NOMINAL
+                        * Math.pow(NOMINAL_VOLTAGE / clamped, VOLTAGE_COMP_GAIN);
     }
 
     // =========================
@@ -550,6 +624,16 @@ public class Blue_Teleop extends LinearOpMode {
         if (!ledOk) return;
         try {
             led.turnAllOff();
+
+            // Wait for the I2C write to go out. Uses a timer instead of sleep()
+            // because sleep() can return instantly once a stop has been requested.
+            long end = System.nanoTime() + LED_OFF_DELAY_MS * 1_000_000L;
+            while (System.nanoTime() < end) {
+                // wait
+            }
+
+            // Send it again in case the first write was dropped
+            led.turnAllOff();
         } catch (Exception ignored) {
         }
     }
@@ -557,6 +641,33 @@ public class Blue_Teleop extends LinearOpMode {
     // =========================
     // SHOOTER AND TRANSFER
     // =========================
+
+    // Spin-up timer: runs while the shooter is not ready, stops when it becomes ready
+    private void updateSpinUpTimer(boolean shooterReady) {
+
+        // Shooter off -> nothing to time
+        if (flyspeed <= 0) {
+            spinUpTiming = false;
+            spinUpSeconds = 0;
+            return;
+        }
+
+        if (!shooterReady) {
+
+            if (!spinUpTiming) {
+                spinUpTiming = true;
+                spinUpStartNs = System.nanoTime();
+            }
+
+            spinUpSeconds = (System.nanoTime() - spinUpStartNs) / 1e9;
+
+        } else if (spinUpTiming) {
+
+            spinUpTiming = false;
+            spinUpSeconds = (System.nanoTime() - spinUpStartNs) / 1e9;
+            lastSpinUpSeconds = spinUpSeconds;
+        }
+    }
 
     private void shooter2() {
 
@@ -585,11 +696,13 @@ public class Blue_Teleop extends LinearOpMode {
                 Math.min(MAX_FLYSPEED, flyspeed)
         );
 
-        shooter.setVelocity(flyspeed);
-
         double actualShooterVelocity = shooter.getVelocity();
 
+        shooter.setVelocity(flyspeed);
+
         boolean shooterReady = actualShooterVelocity >= flyspeed - 100;
+
+        updateSpinUpTimer(shooterReady);
 
         if (gamepad1.right_bumper && shooterReady) {
 
@@ -618,19 +731,7 @@ public class Blue_Teleop extends LinearOpMode {
         auto_aim();
 
         if (IsAutoAming && limelightHasTarget) {
-
-            if (limelightTx > 1.25) {
-
-                rotate = AutoPower;
-
-            } else if (limelightTx < -1.25) {
-
-                rotate = -AutoPower;
-
-            } else {
-
-                rotate = 0;
-            }
+            rotate = AutoPower;
         }
 
         if (gamepad1.options) {
@@ -679,6 +780,14 @@ public class Blue_Teleop extends LinearOpMode {
                 "Speed Difference",
                 flyspeed - shooter.getVelocity()
         );
+
+        telemetry.addData(
+                "Spin-Up Timer",
+                spinUpTiming
+                        ? String.format("%.2f s (spinning up...)", spinUpSeconds)
+                        : "READY");
+
+        telemetry.addData("Last Spin-Up (s)", "%.2f", lastSpinUpSeconds);
 
         telemetry.addData(
                 "Shooter Current",
